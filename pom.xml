@@ -38,52 +38,34 @@
     </license>
   </licenses>
   <scm>
-    <connection>scm:git:git@github.com:apache/spark.git</connection>
-    <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/spark.git</developerConnection>
-    <url>scm:git:git@github.com:apache/spark.git</url>
-    <tag>HEAD</tag>
+    <connection>scm:git:git@github.com:splicemachine/spark.git</connection>
+    <developerConnection>scm:git:git@github.com:splicemachine/spark.git</developerConnection>
+    <url>https://github.com/splicemachine/spark</url>
   </scm>
-  <developers>
-    <developer>
-      <id>matei</id>
-      <name>Matei Zaharia</name>
-      <email>matei.zaharia@gmail.com</email>
-      <url>http://www.cs.berkeley.edu/~matei</url>
-      <organization>Apache Software Foundation</organization>
-      <organizationUrl>http://spark.apache.org</organizationUrl>
-    </developer>
-  </developers>
+
   <issueManagement>
-    <system>JIRA</system>
-    <url>https://issues.apache.org/jira/browse/SPARK</url>
+    <system>jira</system>
+    <url>https://splicemachine.atlassian.net</url>
   </issueManagement>
+
+  <distributionManagement>
+    <repository>
+      <id>splicemachine</id>
+      <name>Splice Machine Releases</name>
+      <url>http://nexus.splicemachine.com/nexus/content/repositories/releases</url>
+      <uniqueVersion>false</uniqueVersion>
+    </repository>
+    <snapshotRepository>
+      <id>splicemachine</id>
+      <name>Splice Machine Snapshots</name>
+      <url>http://nexus.splicemachine.com/nexus/content/repositories/snapshots</url>
+      <uniqueVersion>false</uniqueVersion>
+    </snapshotRepository>
+  </distributionManagement>
 
   <prerequisites>
     <maven>3.0.4</maven>
   </prerequisites>
-
-  <mailingLists>
-    <mailingList>
-      <name>Dev Mailing List</name>
-      <post>dev@spark.apache.org</post>
-      <subscribe>dev-subscribe@spark.apache.org</subscribe>
-      <unsubscribe>dev-unsubscribe@spark.apache.org</unsubscribe>
-    </mailingList>
-
-    <mailingList>
-      <name>User Mailing List</name>
-      <post>user@spark.apache.org</post>
-      <subscribe>user-subscribe@spark.apache.org</subscribe>
-      <unsubscribe>user-unsubscribe@spark.apache.org</unsubscribe>
-    </mailingList>
-
-    <mailingList>
-      <name>Commits Mailing List</name>
-      <post>commits@spark.apache.org</post>
-      <subscribe>commits-subscribe@spark.apache.org</subscribe>
-      <unsubscribe>commits-unsubscribe@spark.apache.org</unsubscribe>
-    </mailingList>
-  </mailingLists>
 
   <modules>
     <module>core</module>
@@ -152,18 +134,20 @@
   </properties>
 
   <repositories>
+
     <repository>
-      <id>central</id>
-      <!-- This should be at top, it makes maven try the central repo first and then others and hence faster dep resolution -->
-      <name>Maven Repository</name>
-      <url>https://repo1.maven.org/maven2</url>
+      <id>splicemachine</id>
+      <!-- This should be at top, it makes maven try the splice nexus proxy first and then others and hence faster dep resolution -->
+      <name>Splice Nexus Server </name>
+      <url>http://nexus.splicemachine.com/nexus/content/groups/developers</url>
       <releases>
         <enabled>true</enabled>
       </releases>
       <snapshots>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
       </snapshots>
     </repository>
+
     <repository>
       <id>apache-repo</id>
       <name>Apache Repository</name>
@@ -175,6 +159,7 @@
         <enabled>false</enabled>
       </snapshots>
     </repository>
+
     <repository>
       <id>jboss-repo</id>
       <name>JBoss Repository</name>
@@ -186,6 +171,7 @@
         <enabled>false</enabled>
       </snapshots>
     </repository>
+
     <repository>
       <id>mqtt-repo</id>
       <name>MQTT Repository</name>
@@ -197,28 +183,7 @@
         <enabled>false</enabled>
       </snapshots>
     </repository>
-    <repository>
-      <id>cloudera-repo</id>
-      <name>Cloudera Repository</name>
-      <url>https://repository.cloudera.com/artifactory/cloudera-repos</url>
-      <releases>
-        <enabled>true</enabled>
-      </releases>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
-    <repository>
-      <id>mapr-repo</id>
-      <name>MapR Repository</name>
-      <url>http://repository.mapr.com/maven</url>
-      <releases>
-        <enabled>true</enabled>
-      </releases>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
+
     <repository>
       <id>spring-releases</id>
       <name>Spring Release Repository</name>
@@ -230,6 +195,7 @@
         <enabled>false</enabled>
       </snapshots>
     </repository>
+
     <repository>
       <!-- This is temporarily included to fix issues with Hive 0.12 -->
       <id>spark-staging</id>
@@ -242,6 +208,7 @@
         <enabled>false</enabled>
       </snapshots>
     </repository>
+
     <repository>
       <!-- This is temporarily included to fix issues with Hive 0.13 -->
       <id>spark-staging-hive13</id>
@@ -255,6 +222,7 @@
       </snapshots>
     </repository>
   </repositories>
+
   <pluginRepositories>
     <pluginRepository>
       <id>central</id>
@@ -278,6 +246,7 @@
       <artifactId>unused</artifactId>
       <version>1.0.0</version>
     </dependency>
+
     <!-- 
          This depndency has been added to provided scope as it is needed for excuting build
          specific groovy scripts using gmaven+ and not required for downstream project building
@@ -290,6 +259,7 @@
       <scope>provided</scope>
     </dependency>
   </dependencies>
+
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -852,6 +822,7 @@
   </dependencyManagement>
 
   <build>
+
     <pluginManagement>
       <plugins>
         <plugin>
@@ -877,11 +848,13 @@
             </execution>
           </executions>
         </plugin>
+
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
           <version>1.8</version>
         </plugin>
+
         <plugin>
           <groupId>net.alchim31.maven</groupId>
           <artifactId>scala-maven-plugin</artifactId>
@@ -941,6 +914,7 @@
             </compilerPlugins>
           </configuration>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
@@ -953,6 +927,7 @@
             <fork>true</fork>
           </configuration>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
@@ -962,6 +937,7 @@
             <skipTests>true</skipTests>
           </configuration>
         </plugin>
+
         <plugin>
           <groupId>org.scalatest</groupId>
           <artifactId>scalatest-maven-plugin</artifactId>
@@ -991,21 +967,25 @@
             </execution>
           </executions>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
           <version>2.4</version>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-antrun-plugin</artifactId>
           <version>1.7</version>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
           <version>2.2</version>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-source-plugin</artifactId>
@@ -1022,6 +1002,7 @@
             </execution>
           </executions>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-clean-plugin</artifactId>
@@ -1037,15 +1018,18 @@
             </filesets>
           </configuration>
         </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>2.10.1</version>
         </plugin>
+
       </plugins>
     </pluginManagement>
 
     <plugins>
+
       <!-- This plugin dumps the test classpath into a file -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -1087,6 +1071,7 @@
           </execution>
         </executions>
       </plugin>
+
       <!-- The shade plug-in is used here to create effective pom's (see SPARK-3812). -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -1108,10 +1093,12 @@
           </execution>
         </executions>
       </plugin>
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
       </plugin>
+
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
@@ -1142,14 +1129,17 @@
           </execution>
         </executions>
       </plugin>
+
       <plugin>
         <groupId>net.alchim31.maven</groupId>
         <artifactId>scala-maven-plugin</artifactId>
       </plugin>
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
       </plugin>
+
       <plugin>
         <groupId>org.scalastyle</groupId>
         <artifactId>scalastyle-maven-plugin</artifactId>
@@ -1228,11 +1218,9 @@
           </plugin>
         </plugins>
       </build>
-
       <modules>
         <module>extras/java8-tests</module>
       </modules>
-
     </profile>
 
     <profile>
@@ -1240,7 +1228,6 @@
       <activation>
         <jdk>[1.8,)</jdk>
       </activation>
-
       <build>
         <plugins>
           <plugin>
@@ -1261,33 +1248,14 @@
     -->
 
     <profile>
-      <id>hadoop-0.23</id>
-      <!-- SPARK-1121: Adds an explicit dependency on Avro to work around a Hadoop 0.23.X issue -->
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.avro</groupId>
-          <artifactId>avro</artifactId>
-        </dependency>
-      </dependencies>
+      <id>splice-hdp2.1</id>
       <properties>
-        <hadoop.version>0.23.10</hadoop.version>
-      </properties>
-    </profile>
-
-    <profile>
-      <id>hadoop-2.2</id>
-      <properties>
-        <hadoop.version>2.2.0</hadoop.version>
+        <hadoop.version>2.4.0.2.1.5.0-695</hadoop.version>
+        <hbase.version>0.98.0-hdp2.1.5-splice1.0.1-SNAPSHOT</hbase.version>
+        <flume.version>1.4.0.2.1.5.0-695</flume.version>
+        <zookeeper.version>3.4.5.2.1.5.0-695</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
-        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
-      </properties>
-    </profile>
-
-    <profile>
-      <id>hadoop-2.3</id>
-      <properties>
-        <hadoop.version>2.3.0</hadoop.version>
-        <protobuf.version>2.5.0</protobuf.version>
+        <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
         <commons.math3.version>3.1.1</commons.math3.version>
         <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
@@ -1295,10 +1263,15 @@
     </profile>
 
     <profile>
-      <id>hadoop-2.4</id>
+      <id>splice-hdp2.2</id>
       <properties>
-        <hadoop.version>2.4.0</hadoop.version>
+        <hadoop.version>2.6.0.2.2.0.0-2041</hadoop.version>
+        <hbase.version>0.98.4.2.2.0.0-2041-hadoop2</hbase.version>
+        <!--hbase.version>0.98.0-hdp2.2.0-splice1.0.0</hbase.version-->
+        <flume.version>1.5.2.2.2.0.0-2041</flume.version>
+        <zookeeper.version>3.4.6.2.2.0.0-2041</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
+        <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
         <commons.math3.version>3.1.1</commons.math3.version>
         <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
@@ -1318,44 +1291,6 @@
         <module>yarn</module>
         <module>network/yarn</module>
       </modules>
-    </profile>
-
-    <profile>
-      <id>mapr3</id>
-      <properties>
-        <hadoop.version>1.0.3-mapr-3.0.3</hadoop.version>
-        <yarn.version>2.3.0-mapr-4.0.0-FCS</yarn.version>
-        <hbase.version>0.94.17-mapr-1405</hbase.version>
-        <zookeeper.version>3.4.5-mapr-1406</zookeeper.version>
-      </properties>
-    </profile>
-
-    <profile>
-      <id>mapr4</id>
-      <properties>
-        <hadoop.version>2.3.0-mapr-4.0.0-FCS</hadoop.version>
-        <yarn.version>2.3.0-mapr-4.0.0-FCS</yarn.version>
-        <hbase.version>0.94.17-mapr-1405-4.0.0-FCS</hbase.version>
-        <zookeeper.version>3.4.5-mapr-1406</zookeeper.version>
-      </properties>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.curator</groupId>
-          <artifactId>curator-recipes</artifactId>
-          <version>2.4.0</version>
-          <exclusions>
-            <exclusion>
-              <groupId>org.apache.zookeeper</groupId>
-              <artifactId>zookeeper</artifactId>
-            </exclusion>
-          </exclusions>
-        </dependency>
-        <dependency>
-          <groupId>org.apache.zookeeper</groupId>
-          <artifactId>zookeeper</artifactId>
-          <version>3.4.5-mapr-1406</version>
-        </dependency>
-      </dependencies>
     </profile>
 
     <!-- Build without Hadoop dependencies that are included in some runtime environments. -->
@@ -1405,12 +1340,14 @@
         </dependency>
       </dependencies>
     </profile>
+
     <profile>
       <id>hive-thriftserver</id>
       <modules>
         <module>sql/hive-thriftserver</module>
       </modules>
     </profile>
+
     <profile>
       <id>hive-0.12.0</id>
       <properties>
@@ -1419,6 +1356,7 @@
         <derby.version>10.4.2.0</derby.version>
       </properties>
     </profile>
+
     <profile>
       <id>hive-0.13.1</id>
       <properties>
