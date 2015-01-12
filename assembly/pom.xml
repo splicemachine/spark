@@ -90,13 +90,6 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-deploy-plugin</artifactId>
-        <configuration>
-          <skip>true</skip>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-install-plugin</artifactId>
         <configuration>
           <skip>true</skip>
@@ -165,6 +158,30 @@
           </execution>
         </executions>
       </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <configuration>
+          <file>${spark.jar}</file>
+          <repositoryId>splicemachine</repositoryId>
+          <url>http://nexus.splicemachine.com/nexus/content/repositories/releases/</url>
+          <groupId>${groupId}</groupId>
+          <artifactId>spark-assembly-hadoop${hadoop.version}</artifactId>
+          <version>${version}</version>
+          <packaging>jar</packaging>
+          <generatePom>false</generatePom>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>deploy-file</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
     </plugins>
   </build>
 
