@@ -139,6 +139,16 @@
                     <exclude>com/google/common/base/Present*</exclude>
                   </excludes>
                 </relocation>
+  		<relocation>
+                  <pattern>org.jboss.netty</pattern>
+                  <shadedPattern>org.spark-project.jboss.netty</shadedPattern>
+                  <includes>
+                    <include>org.jboss.netty.**</include>
+                  </includes>
+                  <excludes>
+                  </excludes>
+                </relocation>
+
               </relocations>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
