@@ -1290,10 +1290,6 @@
 
     <profile>
       <id>splice-cdh4.5</id>
-      <modules>
-        <module>yarn</module>
-        <module>network/yarn</module>
-      </modules>
       <properties>
         <hadoop.version>2.0.0-cdh4.5.0</hadoop.version>
         <hbase.version>0.94.6-cdh4.5.0-splice1.0.2-SNAPSHOT</hbase.version>
