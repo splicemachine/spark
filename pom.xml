@@ -1255,10 +1255,10 @@
         <module>network/yarn</module>
       </modules>
       <properties>
-        <hadoop.version>2.4.0.2.1.5.0-695</hadoop.version>
-        <hbase.version>0.98.0-hdp2.1.5-splice1.0.2-SNAPSHOT</hbase.version>
-        <flume.version>1.4.0.2.1.5.0-695</flume.version>
-        <zookeeper.version>3.4.5.2.1.5.0-695</zookeeper.version>
+        <hadoop.version>2.4.0.2.1.7.0-695</hadoop.version>
+        <hbase.version>0.98.0-hdp2.1.7-splice1.0.2-SNAPSHOT</hbase.version>
+        <flume.version>1.4.0.2.1.7.0-695</flume.version>
+        <zookeeper.version>3.4.5.2.1.7.0-695</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
@@ -1331,10 +1331,10 @@
       </modules>
       <id>splice-cdh5.2</id>
       <properties>
-        <hadoop.version>2.5.0-cdh5.2.1</hadoop.version>
-        <hbase.version>0.98.6-cdh5.2.1-splice1.0.2-SNAPSHOT</hbase.version>
-        <flume.version>1.5.0-cdh5.2.1</flume.version>
-        <zookeeper.version>3.4.5-cdh5.2.1</zookeeper.version>
+        <hadoop.version>2.5.0-cdh5.2.4</hadoop.version>
+        <hbase.version>0.98.6-cdh5.2.4-splice1.0.2-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-cdh5.2.4</flume.version>
+        <zookeeper.version>3.4.5-cdh5.2.4</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
@@ -1351,10 +1351,10 @@
       </modules>
       <id>splice-cdh5.3</id>
       <properties>
-        <hadoop.version>2.5.0-cdh5.3.0</hadoop.version>
-        <hbase.version>0.98.6-cdh5.3.0-splice1.0.2-SNAPSHOT</hbase.version>
-        <flume.version>1.5.0-cdh5.3.0</flume.version>
-        <zookeeper.version>3.4.5-cdh5.3.0</zookeeper.version>
+        <hadoop.version>2.5.0-cdh5.3.2</hadoop.version>
+        <hbase.version>0.98.6-cdh5.3.2-splice1.0.2-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-cdh5.3.2</flume.version>
+        <zookeeper.version>3.4.5-cdh5.3.2</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
@@ -1372,7 +1372,7 @@
       <id>splice-mapr4.0</id>
       <properties>
         <hadoop.version>2.4.1-mapr-1408</hadoop.version>
-        <hbase.version>0.98.4-mapr4.0.1-splice1.0.2-SNAPSHOT</hbase.version>
+        <hbase.version>0.98.7-mapr4.0.1-splice1.0.2-SNAPSHOT</hbase.version>
         <flume.version>1.5.0-mapr-1408</flume.version>
         <zookeeper.version>3.4.5-mapr-1406</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
