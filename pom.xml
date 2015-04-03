@@ -1275,10 +1275,11 @@
         <module>network/yarn</module>
       </modules>
       <properties>
-        <hadoop.version>2.6.0.2.2.4.0-2041</hadoop.version>
+        <hadoop.version>2.6.0.2.2.4.0-2633</hadoop.version>
         <hbase.version>0.98.4-hdp2.2.4-splice1.0.2-SNAPSHOT</hbase.version>
+        <hive.version>0.14.0.2.2.4.0-2633</hive.version>
         <flume.version>1.5.2.2.2.0.4-2041</flume.version>
-        <zookeeper.version>3.4.6.2.2.0.4-2041</zookeeper.version>
+        <zookeeper.version>3.4.6.2.2.4.0-2633</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
         <jets3t.version>0.9.0</jets3t.version>
