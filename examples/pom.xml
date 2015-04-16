@@ -348,7 +348,7 @@
               <relocations>
                 <relocation>
                   <pattern>com.google</pattern>
-                  <shadedPattern>org.spark-project.guava</shadedPattern>
+                  <shadedPattern>org.sparkproject.guava</shadedPattern>
                   <includes>
                     <include>com.google.common.**</include>
                   </includes>
@@ -358,7 +358,7 @@
                 </relocation>
                 <relocation>
                   <pattern>org.apache.commons.math3</pattern>
-                  <shadedPattern>org.spark-project.commons.math3</shadedPattern>
+                  <shadedPattern>org.sparkproject.commons.math3</shadedPattern>
                 </relocation>
               </relocations>
               <transformers>

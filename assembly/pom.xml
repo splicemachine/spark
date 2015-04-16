@@ -129,7 +129,7 @@
               <relocations>
                 <relocation>
                   <pattern>com.google</pattern>
-                  <shadedPattern>org.spark-project.guava</shadedPattern>
+                  <shadedPattern>org.sparkproject.guava</shadedPattern>
                   <includes>
                     <include>com.google.common.**</include>
                   </includes>
@@ -139,16 +139,15 @@
                     <exclude>com/google/common/base/Present*</exclude>
                   </excludes>
                 </relocation>
-  		<relocation>
+                <relocation>
                   <pattern>org.jboss.netty</pattern>
-                  <shadedPattern>org.spark-project.jboss.netty</shadedPattern>
+                  <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
                   <includes>
                     <include>org.jboss.netty.**</include>
                   </includes>
                   <excludes>
                   </excludes>
                 </relocation>
-
               </relocations>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
