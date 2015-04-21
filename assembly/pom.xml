@@ -179,7 +179,7 @@
           <artifactId>spark-assembly-hadoop${hadoop.version}</artifactId>
           <version>${version}</version>
           <packaging>jar</packaging>
-          <generatePom>false</generatePom>
+          <generatePom>true</generatePom>
         </configuration>
         <executions>
           <execution>
