@@ -115,6 +115,7 @@
                 <exclude>org/slf4j/**</exclude>
                 <exclude>META-INF/maven/org.slf4j/**</exclude>
                 <exclude>META-INF/license/LICENSE.slf4j.txt</exclude>
+				<exclude>org/apache/commons/logging/**</exclude>
                 <exclude>META-INF/*.SF</exclude>
                 <exclude>META-INF/*.DSA</exclude>
                 <exclude>META-INF/*.RSA</exclude>
