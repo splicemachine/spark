@@ -1429,6 +1429,26 @@
     </profile>
 
     <profile>
+      <id>splice-mapr0.98.12</id>
+      <modules>
+        <module>yarn</module>
+        <module>network/yarn</module>
+      </modules>
+      <properties>
+        <hadoop.version>2.7.0-mapr-1506</hadoop.version>
+        <hbase.version>0.98.12-mapr-1506-splice1.0.2-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-mapr-1503</flume.version>
+        <zookeeper.version>3.4.5-mapr-1503</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <!-- derby.version>1.1.0-SNAPSHOT</derby.version -->
+        <jets3t.version>0.9.0</jets3t.version>
+        <commons.math3.version>3.1.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
       <id>yarn-alpha</id>
       <modules>
         <module>yarn</module>
