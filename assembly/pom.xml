@@ -150,18 +150,6 @@
             <configuration>
               <relocations>
                 <relocation>
-                  <pattern>com.google</pattern>
-                  <shadedPattern>org.sparkproject.guava</shadedPattern>
-                  <includes>
-                    <include>com.google.common.**</include>
-                  </includes>
-                  <excludes>
-                    <exclude>com/google/common/base/Absent*</exclude>
-                    <exclude>com/google/common/base/Optional*</exclude>
-                    <exclude>com/google/common/base/Present*</exclude>
-                  </excludes>
-                </relocation>
-                <relocation>
                   <pattern>org.jboss.netty</pattern>
                   <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
                   <includes>
