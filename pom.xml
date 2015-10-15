@@ -147,7 +147,7 @@
     <flume.version>1.6.0</flume.version>
     <zookeeper.version>3.4.5</zookeeper.version>
     <curator.version>2.4.0</curator.version>
-    <hive.group>org.sparkproject.hive</hive.group>
+    <hive.group>org.spark-project.hive</hive.group>
     <!-- Version used in Maven Hive dependency -->
     <hive.version>1.2.1.spark</hive.version>
     <!-- Version used for internal directory structure -->
