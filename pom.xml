@@ -340,7 +340,7 @@
       to create effective poms on publishing (see SPARK-3812).
     -->
     <dependency>
-      <groupId>org.sparkproject.spark</groupId>
+      <groupId>org.spark-project.spark</groupId>
       <artifactId>unused</artifactId>
       <version>1.0.0</version>
     </dependency>
@@ -2125,7 +2125,7 @@
           <artifactSet>
             <includes>
               <!-- At a minimum we must include this to force effective pom generation -->
-              <include>org.sparkproject.spark:unused</include>
+              <include>org.spark-project.spark:unused</include>
 
               <include>org.eclipse.jetty:jetty-io</include>
               <include>org.eclipse.jetty:jetty-http</include>
