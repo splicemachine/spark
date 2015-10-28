@@ -26,100 +26,61 @@
   </parent>
 
   <groupId>org.apache.spark</groupId>
-  <artifactId>spark-assembly_2.10</artifactId>
+  <artifactId>spark-splice-minimal</artifactId>
   <name>Spark Project Assembly</name>
   <url>http://spark.apache.org/</url>
-  <packaging>pom</packaging>
-
-  <properties>
-    <sbt.project.name>assembly</sbt.project.name>
-    <spark.jar.dir>scala-${scala.binary.version}</spark.jar.dir>
-    <spark.jar.basename>spark-assembly-${project.version}-hadoop${hadoop.version}.jar</spark.jar.basename>
-    <spark.jar>${project.build.directory}/${spark.jar.dir}/${spark.jar.basename}</spark.jar>
-    <deb.pkg.name>spark</deb.pkg.name>
-    <deb.install.path>/usr/share/spark</deb.install.path>
-    <deb.user>root</deb.user>
-    <deb.bin.filemode>744</deb.bin.filemode>
-  </properties>
+  <packaging>jar</packaging>
 
   <dependencies>
-    <!-- Promote Guava to compile scope in this module so it's included while shading. -->
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
-      <scope>compile</scope>
-    </dependency>
+
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <!-- <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-bagel_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency> -->
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-mllib_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-streaming_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-graphx_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <!-- <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-sql_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency> -->
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-repl_${scala.binary.version}</artifactId>
-      <version>${project.version}</version>
-    </dependency>
+
   </dependencies>
 
   <build>
     <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-install-plugin</artifactId>
-        <configuration>
-          <skip>true</skip>
-        </configuration>
-      </plugin>
       <!-- Use the shade plugin to create a big JAR with all the dependencies -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <configuration>
           <shadedArtifactAttached>false</shadedArtifactAttached>
-          <outputFile>${spark.jar}</outputFile>
           <artifactSet>
             <includes>
-              <include>*:*</include>
+              <include>org.apache.spark:*</include>
+              <include>com.twitter:*</include>
             </includes>
           </artifactSet>
           <filters>
             <filter>
               <artifact>*:*</artifact>
-              <excludes>
-                <exclude>org/datanucleus/**</exclude>
-                <exclude>org/slf4j/**</exclude>
-                <exclude>META-INF/maven/org.slf4j/**</exclude>
-                <exclude>META-INF/license/LICENSE.slf4j.txt</exclude>
-				<exclude>org/apache/commons/logging/**</exclude>
-                <exclude>META-INF/*.SF</exclude>
-                <exclude>META-INF/*.DSA</exclude>
-                <exclude>META-INF/*.RSA</exclude>
-              </excludes>
+              <includes>
+
+                <!-- Bare minimum content needed to compile splice 1.5.x -->
+
+                <include>org/apache/spark/api/**</include>
+                <include>org/apache/spark/broadcast/**</include>
+                <include>org/apache/spark/scheduler/**</include>
+                <include>org/apache/spark/serializer/**</include>
+                <include>org/apache/spark/rdd/**</include>
+                <include>org/apache/spark/storage/**</include>
+
+                <include>org/apache/spark/Logging.class</include>
+                <include>org/apache/spark/Partition.class</include>
+                <include>org/apache/spark/Partitioner.class</include>
+                <include>org/apache/spark/SparkConf.class</include>
+                <include>org/apache/spark/SparkConf.class</include>
+                <include>org/apache/spark/SparkContext.class</include>
+                <include>org/apache/spark/SparkException.class</include>
+                <include>org/apache/spark/SerializableWritable.class</include>
+
+                <include>com/twitter/**</include>
+
+              </includes>
             </filter>
           </filters>
         </configuration>
@@ -130,67 +91,7 @@
               <goal>shade</goal>
             </goals>
             <configuration>
-              <relocations>
-                <relocation>
-                  <pattern>com.google</pattern>
-                  <shadedPattern>org.sparkproject.guava</shadedPattern>
-                  <includes>
-                    <include>com.google.common.**</include>
-                  </includes>
-                  <excludes>
-                    <exclude>com/google/common/base/Absent*</exclude>
-                    <exclude>com/google/common/base/Optional*</exclude>
-                    <exclude>com/google/common/base/Present*</exclude>
-                  </excludes>
-                </relocation>
-                <relocation>
-                  <pattern>org.jboss.netty</pattern>
-                  <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
-                  <includes>
-                    <include>org.jboss.netty.**</include>
-                  </includes>
-                  <excludes>
-                  </excludes>
-                </relocation>
-              </relocations>
-              <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
-                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
-                  <resource>META-INF/services/org.apache.hadoop.fs.FileSystem</resource>
-                </transformer>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
-                  <resource>reference.conf</resource>
-                </transformer>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
-                  <resource>log4j.properties</resource>
-                </transformer>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
-              </transformers>
             </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-deploy-plugin</artifactId>
-        <configuration>
-          <file>${spark.jar}</file>
-          <repositoryId>splicemachine</repositoryId>
-          <url>http://nexus.splicemachine.com/nexus/content/repositories/releases/</url>
-          <groupId>${groupId}</groupId>
-          <artifactId>spark-assembly-hadoop${hadoop.version}</artifactId>
-          <version>${version}</version>
-          <packaging>jar</packaging>
-          <generatePom>true</generatePom>
-        </configuration>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals>
-              <goal>deploy-file</goal>
-            </goals>
           </execution>
         </executions>
       </plugin>
@@ -198,201 +99,5 @@
     </plugins>
   </build>
 
-  <profiles>
-    <profile>
-      <id>yarn-alpha</id>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.spark</groupId>
-          <artifactId>spark-yarn-alpha_${scala.binary.version}</artifactId>
-          <version>${project.version}</version>
-        </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>yarn</id>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.spark</groupId>
-          <artifactId>spark-yarn_${scala.binary.version}</artifactId>
-          <version>${project.version}</version>
-        </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>hive</id>
-      <dependencies>
-        <!-- <dependency>
-          <groupId>org.apache.spark</groupId>
-          <artifactId>spark-hive_${scala.binary.version}</artifactId>
-          <version>${project.version}</version>
-        </dependency> -->
-      </dependencies>
-    </profile>
-    <profile>
-      <id>hive-thriftserver</id>
-      <dependencies>
-        <!-- <dependency>
-          <groupId>org.apache.spark</groupId>
-          <artifactId>spark-hive-thriftserver_${scala.binary.version}</artifactId>
-          <version>${project.version}</version>
-        </dependency> -->
-      </dependencies>
-    </profile>
-    <profile>
-      <id>spark-ganglia-lgpl</id>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.spark</groupId>
-          <artifactId>spark-ganglia-lgpl_${scala.binary.version}</artifactId>
-          <version>${project.version}</version>
-        </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>bigtop-dist</id>
-      <!-- This profile uses the assembly plugin to create a special "dist" package for BigTop
-           that contains Spark but not the Hadoop JARs it depends on. -->
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-assembly-plugin</artifactId>
-            <version>2.4</version>
-            <executions>
-              <execution>
-                <id>dist</id>
-                <phase>package</phase>
-                <goals>
-                  <goal>single</goal>
-                </goals>
-                <configuration>
-                  <descriptors>
-                    <descriptor>src/main/assembly/assembly.xml</descriptor>
-                  </descriptors>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-    <profile>
-      <id>deb</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.codehaus.mojo</groupId>
-            <artifactId>buildnumber-maven-plugin</artifactId>
-            <version>1.2</version>
-            <executions>
-              <execution>
-                <phase>validate</phase>
-                <goals>
-                  <goal>create</goal>
-                </goals>
-                <configuration>
-                  <shortRevisionLength>8</shortRevisionLength>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-          <plugin>
-            <groupId>org.vafer</groupId>
-            <artifactId>jdeb</artifactId>
-            <version>0.11</version>
-            <executions>
-              <execution>
-                <phase>package</phase>
-                <goals>
-                  <goal>jdeb</goal>
-                </goals>
-                <configuration>
-                  <deb>${project.build.directory}/${deb.pkg.name}_${project.version}-${buildNumber}_all.deb</deb>
-                  <attach>false</attach>
-                  <compression>gzip</compression>
-                  <dataSet>
-                    <data>
-                      <src>${spark.jar}</src>
-                      <type>file</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}/jars</prefix>
-                      </mapper>
-                    </data>
-                    <data>
-                      <src>${basedir}/src/deb/RELEASE</src>
-                      <type>file</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}</prefix>
-                      </mapper>
-                    </data>
-                    <data>
-                      <src>${basedir}/../conf</src>
-                      <type>directory</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}/conf</prefix>
-                        <filemode>744</filemode>
-                      </mapper>
-                    </data>
-                    <data>
-                      <src>${basedir}/../bin</src>
-                      <type>directory</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}/bin</prefix>
-                        <filemode>${deb.bin.filemode}</filemode>
-                      </mapper>
-                    </data>
-                    <data>
-                      <src>${basedir}/../sbin</src>
-                      <type>directory</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}/sbin</prefix>
-                        <filemode>744</filemode>
-                      </mapper>
-                    </data>
-                    <data>
-                      <src>${basedir}/../python</src>
-                      <type>directory</type>
-                      <mapper>
-                        <type>perm</type>
-                        <user>${deb.user}</user>
-                        <group>${deb.user}</group>
-                        <prefix>${deb.install.path}/python</prefix>
-                        <filemode>744</filemode>
-                      </mapper>
-                    </data>
-                  </dataSet>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-    <profile>
-      <id>kinesis-asl</id>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpclient</artifactId>
-          <version>${commons.httpclient.version}</version>
-        </dependency>
-      </dependencies>
-    </profile>
-  </profiles>
+
 </project>
