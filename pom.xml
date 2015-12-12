@@ -2446,7 +2446,7 @@
       <properties>
         <hadoop.version>2.6.0-cdh5.5.0</hadoop.version>
         <hbase.version>1.0.0-cdh5.5.0-splice1.5.1-SNAPSHOT</hbase.version>
-        <flume.version>1.5.0-cdh5.5.0</flume.version>
+        <flume.version>1.6.0-cdh5.5.0</flume.version>
         <zookeeper.version>3.4.5-cdh5.5.0</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <jets3t.version>0.9.3</jets3t.version>
@@ -2465,7 +2465,7 @@
       <properties>
         <hadoop.version>2.6.0-cdh5.5.1</hadoop.version>
         <hbase.version>1.0.0-cdh5.5.1-splice1.5.1-SNAPSHOT</hbase.version>
-        <flume.version>1.5.0-cdh5.5.1</flume.version>
+        <flume.version>1.6.0-cdh5.5.1</flume.version>
         <zookeeper.version>3.4.5-cdh5.5.1</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
         <jets3t.version>0.9.0</jets3t.version>
