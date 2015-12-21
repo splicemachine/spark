@@ -2366,7 +2366,7 @@
         <flume.version>1.5.2.2.2.4.0-2633</flume.version>
         <zookeeper.version>3.4.6.2.2.4.0-2633</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
-        <jets3t.version>0.9.0</jets3t.version>
+        <jets3t.version>0.9.3</jets3t.version>
         <commons.math3.version>3.4.1</commons.math3.version>
         <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
         <snappy.version>1.0.4.1</snappy.version>
@@ -2381,7 +2381,7 @@
         <flume.version>1.5.2.2.3.0.0-2557</flume.version>
         <zookeeper.version>3.4.6.2.3.0.0-2557</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
-        <jets3t.version>0.9.0</jets3t.version>
+        <jets3t.version>0.9.3</jets3t.version>
         <commons.math3.version>3.4.1</commons.math3.version>
         <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
         <snappy.version>1.0.4.1</snappy.version>
@@ -2420,10 +2420,6 @@
 
     <profile>
       <id>splice-cdh5.4.8</id>
-      <modules>
-        <module>yarn</module>
-        <module>network/yarn</module>
-      </modules>
       <properties>
         <hadoop.version>2.6.0-cdh5.4.8</hadoop.version>
         <hbase.version>1.0.0-cdh5.4.8-splice1.5.1-SNAPSHOT</hbase.version>
@@ -2439,10 +2435,6 @@
 
     <profile>
       <id>splice-cdh5.5.0</id>
-      <modules>
-        <module>yarn</module>
-        <module>network/yarn</module>
-      </modules>
       <properties>
         <hadoop.version>2.6.0-cdh5.5.0</hadoop.version>
         <hbase.version>1.0.0-cdh5.5.0-splice1.5.1-SNAPSHOT</hbase.version>
@@ -2458,17 +2450,13 @@
 
     <profile>
       <id>splice-cdh5.5.1</id>
-      <modules>
-        <module>yarn</module>
-        <module>network/yarn</module>
-      </modules>
       <properties>
         <hadoop.version>2.6.0-cdh5.5.1</hadoop.version>
         <hbase.version>1.0.0-cdh5.5.1-splice1.5.1-SNAPSHOT</hbase.version>
         <flume.version>1.6.0-cdh5.5.1</flume.version>
         <zookeeper.version>3.4.5-cdh5.5.1</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
-        <jets3t.version>0.9.0</jets3t.version>
+        <jets3t.version>0.9.3</jets3t.version>
         <commons.math3.version>3.4.1</commons.math3.version>
         <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
         <snappy.version>1.0.5</snappy.version>
