@@ -44,11 +44,11 @@
       <artifactId>spark-core_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <dependency>
+    <!-- <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-bagel_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-    </dependency>
+    </dependency> -->
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-mllib_${scala.binary.version}</artifactId>
@@ -64,11 +64,11 @@
       <artifactId>spark-graphx_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <dependency>
+    <!-- <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-sql_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-    </dependency>
+    </dependency> -->
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-repl_${scala.binary.version}</artifactId>
@@ -130,6 +130,10 @@
               <artifact>*:*</artifact>
               <excludes>
                 <exclude>org/datanucleus/**</exclude>
+                <exclude>org/slf4j/**</exclude>
+                <exclude>META-INF/maven/org.slf4j/**</exclude>
+                <exclude>META-INF/license/LICENSE.slf4j.txt</exclude>
+				<exclude>org/apache/commons/logging/**</exclude>
                 <exclude>META-INF/*.SF</exclude>
                 <exclude>META-INF/*.DSA</exclude>
                 <exclude>META-INF/*.RSA</exclude>
@@ -144,6 +148,17 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <relocations>
+                <relocation>
+                  <pattern>org.jboss.netty</pattern>
+                  <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
+                  <includes>
+                    <include>org.jboss.netty.**</include>
+                  </includes>
+                  <excludes>
+                  </excludes>
+                </relocation>
+              </relocations>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
                 <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
@@ -162,6 +177,30 @@
           </execution>
         </executions>
       </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <configuration>
+          <file>${spark.jar}</file>
+          <repositoryId>splicemachine</repositoryId>
+          <url>http://nexus.splicemachine.com/nexus/content/repositories/releases/</url>
+          <groupId>${groupId}</groupId>
+          <artifactId>spark-assembly-hadoop${hadoop.version}</artifactId>
+          <version>${version}</version>
+          <packaging>jar</packaging>
+          <generatePom>true</generatePom>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>deploy-file</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
     </plugins>
   </build>
 
@@ -179,21 +218,21 @@
     <profile>
       <id>hive</id>
       <dependencies>
-        <dependency>
+        <!-- <dependency>
           <groupId>org.apache.spark</groupId>
           <artifactId>spark-hive_${scala.binary.version}</artifactId>
           <version>${project.version}</version>
-        </dependency>
+        </dependency> -->
       </dependencies>
     </profile>
     <profile>
       <id>hive-thriftserver</id>
       <dependencies>
-        <dependency>
+        <!-- <dependency>
           <groupId>org.apache.spark</groupId>
           <artifactId>spark-hive-thriftserver_${scala.binary.version}</artifactId>
           <version>${project.version}</version>
-        </dependency>
+        </dependency> -->
       </dependencies>
     </profile>
     <profile>
