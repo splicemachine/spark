@@ -38,10 +38,9 @@
     </license>
   </licenses>
   <scm>
-    <connection>scm:git:git@github.com:apache/spark.git</connection>
-    <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/spark.git</developerConnection>
-    <url>scm:git:git@github.com:apache/spark.git</url>
-    <tag>HEAD</tag>
+    <connection>scm:git:git@github.com:splicemachine/spark.git</connection>
+    <developerConnection>scm:git:git@github.com:splicemachine/spark.git</developerConnection>
+    <url>https://github.com/splicemachine/spark</url>
   </scm>
   <developers>
     <developer>
@@ -54,9 +53,24 @@
     </developer>
   </developers>
   <issueManagement>
-    <system>JIRA</system>
-    <url>https://issues.apache.org/jira/browse/SPARK</url>
+    <system>jira</system>
+    <url>https://splicemachine.atlassian.net</url>
   </issueManagement>
+
+  <distributionManagement>
+    <repository>
+      <id>splicemachine</id>
+      <name>Splice Machine Releases</name>
+      <url>http://nexus.splicemachine.com/nexus/content/repositories/releases</url>
+      <uniqueVersion>false</uniqueVersion>
+    </repository>
+    <snapshotRepository>
+      <id>splicemachine</id>
+      <name>Splice Machine Snapshots</name>
+      <url>http://nexus.splicemachine.com/nexus/content/repositories/snapshots</url>
+      <uniqueVersion>false</uniqueVersion>
+    </snapshotRepository>
+  </distributionManagement>
 
   <prerequisites>
     <maven>${maven.version}</maven>
@@ -215,15 +229,15 @@
   </properties>
   <repositories>
     <repository>
-      <id>central</id>
-      <!-- This should be at top, it makes maven try the central repo first and then others and hence faster dep resolution -->
-      <name>Maven Repository</name>
-      <url>https://repo1.maven.org/maven2</url>
+      <id>splicemachine</id>
+      <!-- This should be at top, it makes maven try the splice nexus proxy first and then others and hence faster dep resolution -->
+      <name>Splice Nexus Server </name>
+      <url>http://nexus.splicemachine.com/nexus/content/groups/developers</url>
       <releases>
         <enabled>true</enabled>
       </releases>
       <snapshots>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
       </snapshots>
     </repository>
     <repository>
@@ -2272,14 +2286,14 @@
           <relocations>
             <relocation>
               <pattern>org.eclipse.jetty</pattern>
-              <shadedPattern>org.spark-project.jetty</shadedPattern>
+              <shadedPattern>org.sparkproject.jetty</shadedPattern>
               <includes>
                 <include>org.eclipse.jetty.**</include>
               </includes>
             </relocation>
             <relocation>
               <pattern>com.google.common</pattern>
-              <shadedPattern>org.spark-project.guava</shadedPattern>
+              <shadedPattern>org.sparkproject.guava</shadedPattern>
               <excludes>
                 <!--
                   These classes cannot be relocated, because the Java API exposes the
@@ -2475,6 +2489,156 @@
     -->
 
     <profile>
+      <id>splice-hdp2.1.7</id>
+      <properties>
+        <hadoop.version>2.4.0.2.1.7.0-784</hadoop.version>
+        <hbase.version>0.98.0-hdp2.1.7-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.4.0.2.1.7.0-784</flume.version>
+        <zookeeper.version>3.4.5.2.1.7.0-784</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.0</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-hdp2.2.4</id>
+      <properties>
+        <hadoop.version>2.6.0.2.2.4.0-2633</hadoop.version>
+        <hbase.version>0.98.4-hdp2.2.4-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.2.2.2.4.0-2633</flume.version>
+        <zookeeper.version>3.4.6.2.2.4.0-2633</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-hdp2.3.0</id>
+      <properties>
+        <hadoop.version>2.7.1.2.3.0.0-2557</hadoop.version>
+        <hbase.version>1.1.1-hdp2.3.0-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.2.2.3.0.0-2557</flume.version>
+        <zookeeper.version>3.4.6.2.3.0.0-2557</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-cdh5.3.2</id>
+      <properties>
+        <hadoop.version>2.5.0-cdh5.3.2</hadoop.version>
+        <hbase.version>0.98.6-cdh5.3.2-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-cdh5.3.2</flume.version>
+        <zookeeper.version>3.4.5-cdh5.3.2</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.0</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.5</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-cdh5.4.1</id>
+      <properties>
+        <hadoop.version>2.6.0-cdh5.4.1</hadoop.version>
+        <hbase.version>1.0.0-cdh5.4.1-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-cdh5.4.1</flume.version>
+        <zookeeper.version>3.4.5-cdh5.4.1</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.5</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-cdh5.4.8</id>
+      <properties>
+        <hadoop.version>2.6.0-cdh5.4.8</hadoop.version>
+        <hbase.version>1.0.0-cdh5.4.8-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-cdh5.4.8</flume.version>
+        <zookeeper.version>3.4.5-cdh5.4.8</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.5</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-cdh5.5.0</id>
+      <properties>
+        <hadoop.version>2.6.0-cdh5.5.0</hadoop.version>
+        <hbase.version>1.0.0-cdh5.5.0-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.6.0-cdh5.5.0</flume.version>
+        <zookeeper.version>3.4.5-cdh5.5.0</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.5</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-cdh5.5.1</id>
+      <properties>
+        <hadoop.version>2.6.0-cdh5.5.1</hadoop.version>
+        <hbase.version>1.0.0-cdh5.5.1-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.6.0-cdh5.5.1</flume.version>
+        <zookeeper.version>3.4.5-cdh5.5.1</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.3</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.5</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-mapr0.98.4</id>
+      <properties>
+        <hadoop.version>2.4.1-mapr-1408</hadoop.version>
+        <hbase.version>0.98.4-mapr-1408-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-mapr-1408</flume.version>
+        <zookeeper.version>3.4.5-mapr-1406</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.0</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>splice-mapr0.98.12</id>
+      <properties>
+        <hadoop.version>2.7.0-mapr-1506</hadoop.version>
+        <hbase.version>0.98.12-mapr-1506-splice1.5.1-SNAPSHOT</hbase.version>
+        <flume.version>1.5.0-mapr-1503</flume.version>
+        <zookeeper.version>3.4.5-mapr-1503</zookeeper.version>
+        <protobuf.version>2.5.0</protobuf.version>
+        <jets3t.version>0.9.0</jets3t.version>
+        <commons.math3.version>3.4.1</commons.math3.version>
+        <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+        <snappy.version>1.0.4.1</snappy.version>
+      </properties>
+    </profile>
+
+    <profile>
       <id>hadoop-1</id>
       <properties>
         <hadoop.version>1.2.1</hadoop.version>
@@ -2482,7 +2646,7 @@
         <hbase.version>0.98.7-hadoop1</hbase.version>
         <avro.mapred.classifier>hadoop1</avro.mapred.classifier>
         <codehaus.jackson.version>1.8.8</codehaus.jackson.version>
-        <akka.group>org.spark-project.akka</akka.group>
+        <akka.group>org.sparkproject.akka</akka.group>
         <akka.version>2.3.4-spark</akka.version>
       </properties>
     </profile>
