@@ -197,7 +197,9 @@ private[ui] object RDDOperationGraph extends Logging {
 
   /** Return the dot representation of a node in an RDDOperationGraph. */
   private def makeDotNode(node: RDDOperationNode): String = {
-    val label = s"${node.name} [${node.id}]\n${node.callsite}"
+    // Splice: we do not want rdd id or rdd callsite appearing in our UI.
+    // val label = s"${node.name} [${node.id}]\n${node.callsite}"
+    val label = s"${node.name}"
     s"""${node.id} [label="${StringEscapeUtils.escapeJava(label)}"]"""
   }
 
