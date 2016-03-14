@@ -203,9 +203,17 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
     }
     // If there's no information for a stage, store the StageInfo received from the scheduler
     // so that we can display stage descriptions for pending stages:
+    val jobDesc = for (
+      props <- Option(jobStart.properties);
+      desc <- Option(props.getProperty(SparkContext.SPARK_JOB_DESCRIPTION))
+    ) yield desc
     for (stageInfo <- jobStart.stageInfos) {
       stageIdToInfo.getOrElseUpdate(stageInfo.stageId, stageInfo)
-      stageIdToData.getOrElseUpdate((stageInfo.stageId, stageInfo.attemptId), new StageUIData)
+      val stageUIData = stageIdToData.getOrElseUpdate((stageInfo.stageId, stageInfo.attemptId),
+        new StageUIData)
+      if (stageUIData.description.isEmpty) {
+        stageUIData.description = jobDesc
+      }
     }
   }
 
