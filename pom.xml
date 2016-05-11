@@ -2585,7 +2585,7 @@
       <id>splice-cdh5.4.10</id>
       <properties>
         <hadoop.version>2.6.0-cdh5.4.10</hadoop.version>
-        <hbase.version>1.0.0-cdh5.4.10</hbase.version>
+        <hbase.version>1.0.0-cdh5.4.10-splice1.5.1-SNAPSHOT</hbase.version>
         <flume.version>1.5.0-cdh5.4.10</flume.version>
         <zookeeper.version>3.4.5-cdh5.4.10</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
@@ -2601,7 +2601,7 @@
       <id>splice-cdh5.5.0</id>
       <properties>
         <hadoop.version>2.6.0-cdh5.5.0</hadoop.version>
-        <hbase.version>1.0.0-cdh5.5.0</hbase.version>
+        <hbase.version>1.0.0-cdh5.5.0-splice1.5.1-SNAPSHOT</hbase.version>
         <flume.version>1.6.0-cdh5.5.0</flume.version>
         <zookeeper.version>3.4.5-cdh5.5.0</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
@@ -2617,7 +2617,7 @@
       <id>splice-cdh5.5.1</id>
       <properties>
         <hadoop.version>2.6.0-cdh5.5.1</hadoop.version>
-        <hbase.version>1.0.0-cdh5.5.1</hbase.version>
+        <hbase.version>1.0.0-cdh5.5.1-splice1.5.1-SNAPSHOT</hbase.version>
         <flume.version>1.6.0-cdh5.5.1</flume.version>
         <zookeeper.version>3.4.5-cdh5.5.1</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
@@ -2699,7 +2699,7 @@
       <id>splice-mapr0.98.12</id>
       <properties>
         <hadoop.version>2.7.0-mapr-1506</hadoop.version>
-        <hbase.version>0.98.12-mapr-1506</hbase.version>
+        <hbase.version>0.98.12-mapr-1506-splice1.5.1-SNAPSHOT</hbase.version>
         <flume.version>1.5.0-mapr-1503</flume.version>
         <zookeeper.version>3.4.5-mapr-1503</zookeeper.version>
         <protobuf.version>2.5.0</protobuf.version>
