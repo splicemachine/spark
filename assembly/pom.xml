@@ -163,6 +163,15 @@
                   <excludes>
                   </excludes>
                 </relocation>
+                  <relocation>
+                      <pattern>io.netty</pattern>
+                      <shadedPattern>org.sparkproject.io.netty</shadedPattern>
+                      <includes>
+                          <include>io.netty.**</include>
+                      </includes>
+                      <excludes>
+                      </excludes>
+                  </relocation>
               </relocations>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
