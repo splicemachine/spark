@@ -2650,6 +2650,39 @@
 
 
       <profile>
+          <id>splice-cdh5.6.0</id>
+          <properties>
+              <hadoop.version>2.6.0-cdh5.6.0</hadoop.version>
+              <hbase.version>1.0.0-cdh5.6.0</hbase.version>
+              <flume.version>1.6.0-cdh5.6.0</flume.version>
+              <zookeeper.version>3.4.5-cdh5.6.0</zookeeper.version>
+              <protobuf.version>2.5.0</protobuf.version>
+              <jets3t.version>0.9.3</jets3t.version>
+              <commons.math3.version>3.4.1</commons.math3.version>
+              <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+              <snappy.version>1.0.5</snappy.version>
+              <kafka.version>0.8.2.0-kafka-1.2.0</kafka.version>
+          </properties>
+      </profile>
+
+
+      <profile>
+          <id>splice-cdh5.7.0</id>
+          <properties>
+              <hadoop.version>2.6.0-cdh5.7.0</hadoop.version>
+              <hbase.version>1.2.0-cdh5.7.0</hbase.version>
+              <flume.version>1.6.0-cdh5.7.0</flume.version>
+              <zookeeper.version>3.4.5-cdh5.7.0</zookeeper.version>
+              <protobuf.version>2.5.0</protobuf.version>
+              <jets3t.version>0.9.3</jets3t.version>
+              <commons.math3.version>3.4.1</commons.math3.version>
+              <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+              <snappy.version>1.0.5</snappy.version>
+              <kafka.version>0.8.2.0-kafka-1.2.0</kafka.version>
+          </properties>
+      </profile>
+
+      <profile>
       <id>splice-mapr0.98.4</id>
       <properties>
         <hadoop.version>2.4.1-mapr-1408</hadoop.version>
@@ -2681,7 +2714,24 @@
       </properties>
     </profile>
 
-    <profile>
+      <profile>
+          <id>splice-mapr5.1.0</id>
+          <properties>
+              <hadoop.version>2.7.0-mapr-1602</hadoop.version>
+              <hbase.version>1.1.1-mapr-1602</hbase.version>
+              <flume.version>1.5.0-mapr-1503</flume.version>
+              <zookeeper.version>3.4.5-mapr-1503</zookeeper.version>
+              <protobuf.version>2.5.0</protobuf.version>
+              <jets3t.version>0.9.0</jets3t.version>
+              <commons.math3.version>3.4.1</commons.math3.version>
+              <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+              <snappy.version>1.0.4.1</snappy.version>
+              <kafka.version>0.8.2.1</kafka.version>
+          </properties>
+      </profile>
+
+
+      <profile>
       <id>hadoop-1</id>
       <properties>
         <hadoop.version>1.2.1</hadoop.version>
