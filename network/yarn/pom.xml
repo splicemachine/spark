@@ -104,8 +104,31 @@
             <goals>
               <goal>shade</goal>
             </goals>
+              <configuration>
+                  <relocations>
+                      <relocation>
+                          <pattern>org.jboss.netty</pattern>
+                          <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
+                          <includes>
+                              <include>org.jboss.netty.**</include>
+                          </includes>
+                          <excludes>
+                          </excludes>
+                      </relocation>
+                      <relocation>
+                          <pattern>io.netty</pattern>
+                          <shadedPattern>org.sparkproject.io.netty</shadedPattern>
+                          <includes>
+                              <include>io.netty.**</include>
+                          </includes>
+                          <excludes>
+                          </excludes>
+                      </relocation>
+                  </relocations>
+              </configuration>
           </execution>
         </executions>
+
       </plugin>
 
       <!-- probes to validate that those dependencies which must be shaded are  -->
