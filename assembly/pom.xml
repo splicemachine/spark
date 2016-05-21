@@ -179,6 +179,22 @@
                       <excludes>
                       </excludes>
                   </relocation>
+                  <relocation>
+                      <pattern>com.fasterxml.jackson</pattern>
+                      <shadedPattern>org.sparkproject.com.fasterxml.jackson</shadedPattern>
+                      <includes>
+                          <include>com.fasterxml.jackson.**</include>
+                      </includes>
+                  </relocation>
+
+                  <relocation>
+                      <pattern>org.apache.spark.network</pattern>
+                      <shadedPattern>org.sparkproject.network</shadedPattern>
+                      <includes>
+                          <include>org.apache.spark.network.**</include>
+                      </includes>
+                  </relocation>
+
               </relocations>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
