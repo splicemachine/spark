@@ -2468,8 +2468,10 @@
     http://hadoop.apache.org/docs/ra.b.c/hadoop-project-dist/hadoop-common/dependency-analysis.html
     -->
 
+<!-- ADDED BY SPLICE -->
+<!-- FOR SPECIFIC PLATFORM SUPPORT -->
     <profile>
-      <id>splice-hdp2.3.0</id>
+      <id>hdp2.3.0</id>
       <properties>
         <hadoop.version>2.7.1.2.3.0.0-2557</hadoop.version>
         <hbase.version>1.1.1-hdp2.3.0-splice1.5.1-SNAPSHOT</hbase.version>
@@ -2485,7 +2487,7 @@
     </profile>
 
       <profile>
-          <id>splice-hdp2.4.2</id>
+          <id>hdp2.4.2</id>
           <properties>
               <hadoop.version>2.7.1.2.4.2.0-258</hadoop.version>
               <hbase.version>1.1.2.2.4.2.0-258</hbase.version>
@@ -2502,7 +2504,7 @@
 
 
     <profile>
-      <id>splice-cdh5.4.8</id>
+      <id>cdh5.4.8</id>
       <properties>
         <hadoop.version>2.6.0-cdh5.4.8</hadoop.version>
         <hbase.version>1.0.0-cdh5.4.8</hbase.version>
@@ -2518,7 +2520,7 @@
     </profile>
 
     <profile>
-      <id>splice-cdh5.4.10</id>
+      <id>cdh5.4.10</id>
       <properties>
         <hadoop.version>2.6.0-cdh5.4.10</hadoop.version>
         <hbase.version>1.0.0-cdh5.4.10</hbase.version>
@@ -2534,7 +2536,7 @@
     </profile>
 
       <profile>
-          <id>splice-cdh5.5.2</id>
+          <id>cdh5.5.2</id>
           <properties>
               <hadoop.version>2.6.0-cdh5.5.2</hadoop.version>
               <hbase.version>1.0.0-cdh5.5.2</hbase.version>
@@ -2551,7 +2553,7 @@
 
 
       <profile>
-          <id>splice-cdh5.6.0</id>
+          <id>cdh5.6.0</id>
           <properties>
               <hadoop.version>2.6.0-cdh5.6.0</hadoop.version>
               <hbase.version>1.0.0-cdh5.6.0</hbase.version>
@@ -2568,7 +2570,7 @@
 
 
       <profile>
-          <id>splice-cdh5.7.0</id>
+          <id>cdh5.7.0</id>
           <properties>
               <hadoop.version>2.6.0-cdh5.7.0</hadoop.version>
               <hbase.version>1.2.0-cdh5.7.0</hbase.version>
@@ -2584,7 +2586,7 @@
       </profile>
 
       <profile>
-          <id>splice-mapr5.1.0</id>
+          <id>mapr5.1.0</id>
           <properties>
               <hadoop.version>2.7.0-mapr-1602</hadoop.version>
               <hbase.version>1.1.1-mapr-1602</hbase.version>
@@ -2598,6 +2600,7 @@
               <kafka.version>0.8.2.1</kafka.version>
           </properties>
       </profile>
+<!-- ADDED BY SPLICE -->
 
 
       <profile>
