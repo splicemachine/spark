@@ -2474,7 +2474,7 @@
         <id>hdp2.3.4</id>
         <properties>
           <hadoop.version>2.7.1.2.3.4.7-4</hadoop.version>
-          <hbase.version>1.1.2.2.3.4.7-4/</hbase.version>
+          <hbase.version>1.1.2.2.3.4.7-4</hbase.version>
           <flume.version>1.5.2.2.3.4.7-4</flume.version>
           <zookeeper.version>3.4.6.2.3.4.7-4</zookeeper.version>
           <protobuf.version>2.5.0</protobuf.version>
