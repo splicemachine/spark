@@ -2482,7 +2482,8 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.4.1</snappy.version>
-          <kafka.version>0.9.0.2.3.4.7-4</kafka.version>
+          <kafka.version>0.8.2.1</kafka.version>
+          <!-- kafka.version>0.9.0.2.3.4.7-4</kafka.version -->
         </properties>
       </profile>
 
@@ -2498,7 +2499,8 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.4.1</snappy.version>
-          <kafka.version>0.9.0.2.4.2.0-258</kafka.version>
+          <kafka.version>0.8.2.1</kafka.version>
+          <!-- kafka.version>0.9.0.2.4.2.0-258</kafka.version -->
         </properties>
       </profile>
 
@@ -2530,7 +2532,7 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.5</snappy.version>
-          <kafka.version>0.9.0-kafka-2.1.0</kafka.version>
+          <kafka.version>0.8.2.0-kafka-1.2.0</kafka.version>
         </properties>
       </profile>
 
@@ -2546,7 +2548,7 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.5</snappy.version>
-          <kafka.version>0.9.0-kafka-2.1.0</kafka.version>
+          <kafka.version>0.8.2.0-kafka-1.2.0</kafka.version>
         </properties>
       </profile>
 
@@ -2562,7 +2564,7 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.5</snappy.version>
-          <kafka.version>0.9.0-kafka-2.1.0</kafka.version>
+          <kafka.version>0.8.2.0-kafka-1.2.0</kafka.version>
         </properties>
       </profile>
 
@@ -2578,7 +2580,7 @@
           <commons.math3.version>3.4.1</commons.math3.version>
           <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
           <snappy.version>1.0.4.1</snappy.version>
-          <kafka.version>0.9.0.0-mapr-1602</kafka.version>
+          <kafka.version>0.8.2.1</kafka.version>
         </properties>
       </profile>
 <!-- ADDED BY SPLICE -->
