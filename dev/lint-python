@@ -35,7 +35,7 @@ compile_status="${PIPESTATUS[0]}"
 #+ See: https://github.com/apache/spark/pull/1744#issuecomment-50982162
 #+ TODOs:
 #+  - Download pep8 from PyPI. It's more "official".
-PEP8_VERSION="1.6.2"
+PEP8_VERSION="1.6.2-4452"
 PEP8_SCRIPT_PATH="$SPARK_ROOT_DIR/dev/pep8-$PEP8_VERSION.py"
 PEP8_SCRIPT_REMOTE_PATH="https://raw.githubusercontent.com/jcrocholl/pep8/$PEP8_VERSION/pep8.py"
 
