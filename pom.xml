@@ -50,15 +50,15 @@
 
   <distributionManagement>
     <repository>
-      <id>splicemachine</id>
+      <id>splicemachine-public</id>
       <name>Splice Machine Releases</name>
-      <url>http://nexus.splicemachine.com/nexus/content/repositories/releases</url>
+      <url>http://repository.splicemachine.com/nexus/content/repositories/releases</url>
       <uniqueVersion>false</uniqueVersion>
     </repository>
     <snapshotRepository>
-      <id>splicemachine</id>
+      <id>splicemachine-public</id>
       <name>Splice Machine Snapshots</name>
-      <url>http://nexus.splicemachine.com/nexus/content/repositories/snapshots</url>
+      <url>http://repository.splicemachine.com/nexus/content/repositories/snapshots</url>
       <uniqueVersion>false</uniqueVersion>
     </snapshotRepository>
   </distributionManagement>
@@ -137,10 +137,9 @@
   <repositories>
 
     <repository>
-      <id>splicemachine</id>
-      <!-- This should be at top, it makes maven try the splice nexus proxy first and then others and hence faster dep resolution -->
-      <name>Splice Nexus Server </name>
-      <url>http://nexus.splicemachine.com/nexus/content/groups/developers</url>
+      <id>splicemachine-public</id>
+      <name>Splice Public Nexus Server </name>
+      <url>http://repository.splicemachine.com/nexus/content/groups/public</url>
       <releases>
         <enabled>true</enabled>
       </releases>
