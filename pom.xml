@@ -102,7 +102,7 @@
   <modules>
     <module>tags</module>
     <module>core</module>
-    <module>bagel</module> <!-- Deprecated -->
+    <module>bagel</module>
     <module>graphx</module>
     <module>mllib</module>
     <module>tools</module>
@@ -115,6 +115,7 @@
     <module>docker-integration-tests</module>
     <module>unsafe</module>
     <module>assembly</module>
+    <!--
     <module>external/twitter</module>
     <module>external/flume</module>
     <module>external/flume-sink</module>
@@ -122,6 +123,7 @@
     <module>external/mqtt</module>
     <module>external/mqtt-assembly</module>
     <module>external/zeromq</module>
+    -->
     <module>examples</module>
     <module>repl</module>
     <module>launcher</module>
