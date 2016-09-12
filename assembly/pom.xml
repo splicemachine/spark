@@ -35,6 +35,11 @@
     <sbt.project.name>assembly</sbt.project.name>
     <build.testJarPhase>none</build.testJarPhase>
     <build.copyDependenciesPhase>package</build.copyDependenciesPhase>
+    <!-- SPLICE MACHINE ADDITIONS -->
+    <spark.jar.dir>scala-${scala.binary.version}</spark.jar.dir>
+    <spark.jar.basename>spark-assembly-${project.version}-hadoop${hadoop.version}.jar</spark.jar.basename>
+    <spark.jar>${project.build.directory}/${spark.jar.dir}/${spark.jar.basename}</spark.jar>
+    <!-- SPLICE MACHINE ADDITIONS -->
   </properties>
 
   <dependencies>
@@ -126,6 +131,106 @@
           </configuration>
       </plugin>
 
+      <!-- SPLICE MACHINE ADDITIONS -->
+      <!-- XXX - 1.6.2 assembly defs -->
+      <!-- Use the shade plugin to create a big JAR with all the dependencies -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <configuration>
+          <shadedArtifactAttached>false</shadedArtifactAttached>
+          <outputFile>${spark.jar}</outputFile>
+          <artifactSet>
+            <includes>
+              <include>*:*</include>
+            </includes>
+          </artifactSet>
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>org/datanucleus/**</exclude>
+                <exclude>org/slf4j/**</exclude>
+                <exclude>META-INF/maven/org.slf4j/**</exclude>
+                <exclude>META-INF/license/LICENSE.slf4j.txt</exclude>
+				<exclude>org/apache/commons/logging/**</exclude>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <relocations>
+                <relocation>
+                  <pattern>org.jboss.netty</pattern>
+                  <shadedPattern>org.sparkproject.jboss.netty</shadedPattern>
+                  <includes>
+                    <include>org.jboss.netty.**</include>
+                  </includes>
+                  <excludes>
+                  </excludes>
+                </relocation>
+                  <relocation>
+                      <pattern>io.netty</pattern>
+                      <shadedPattern>org.sparkproject.io.netty</shadedPattern>
+                      <includes>
+                          <include>io.netty.**</include>
+                      </includes>
+                      <excludes>
+                      </excludes>
+                  </relocation>
+                  <relocation>
+                      <pattern>com.fasterxml.jackson</pattern>
+                      <shadedPattern>org.sparkproject.com.fasterxml.jackson</shadedPattern>
+                      <includes>
+                          <include>com.fasterxml.jackson.**</include>
+                      </includes>
+                  </relocation>
+
+                  <relocation>
+                      <pattern>com.codahale</pattern>
+                      <shadedPattern>org.sparkproject.com.codahale</shadedPattern>
+                      <includes>
+                          <include>com.codahale.**</include>
+                      </includes>
+                  </relocation>
+
+                  <relocation>
+                      <pattern>org.apache.spark.network</pattern>
+                      <shadedPattern>org.sparkproject.network</shadedPattern>
+                      <includes>
+                          <include>org.apache.spark.network.**</include>
+                      </includes>
+                  </relocation>
+
+              </relocations>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/services/org.apache.hadoop.fs.FileSystem</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>reference.conf</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
+                  <resource>log4j.properties</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
@@ -148,6 +253,7 @@
           </execution>
         </executions>
       </plugin>
+      <!-- SPLICE MACHINE ADDITIONS -->
 
     </plugins>
   </build>
