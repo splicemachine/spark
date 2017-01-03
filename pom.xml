@@ -2524,6 +2524,23 @@
       </profile>
 
       <profile>
+        <id>hdp2.4.3</id>
+        <properties>
+          <hadoop.version>2.7.1.2.4.3.0-227</hadoop.version>
+          <hbase.version>1.1.2.2.4.3.0-227</hbase.version>
+          <flume.version>1.5.2.2.4.3.0-227</flume.version>
+          <zookeeper.version>3.4.6.2.4.3.0-227</zookeeper.version>
+          <protobuf.version>2.5.0</protobuf.version>
+          <jets3t.version>0.9.3</jets3t.version>
+          <commons.math3.version>3.4.1</commons.math3.version>
+          <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
+          <snappy.version>1.0.4.1</snappy.version>
+          <kafka.version>0.8.2.1</kafka.version>
+          <!-- kafka.version>0.9.0.2.4.2.0-258</kafka.version -->
+        </properties>
+      </profile>
+
+      <profile>
         <id>hdp2.5.0</id>
         <properties>
           <hadoop.version>2.7.3.2.5.0.0-1245</hadoop.version>
