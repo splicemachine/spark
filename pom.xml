@@ -38,9 +38,9 @@
     </license>
   </licenses>
   <scm>
-    <connection>scm:git:git@github.com:apache/spark.git</connection>
-    <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/spark.git</developerConnection>
-    <url>scm:git:git@github.com:apache/spark.git</url>
+    <connection>scm:git:https://github.com/splicemachine/spark.git</connection>
+    <developerConnection>scm:git:https://github.com/splicemachine/spark.git</developerConnection>
+    <url>https://github.com/splicemachine/spark</url>
     <tag>HEAD</tag>
   </scm>
   <developers>
@@ -55,8 +55,23 @@
   </developers>
   <issueManagement>
     <system>JIRA</system>
-    <url>https://issues.apache.org/jira/browse/SPARK</url>
+    <url>https://splice.atlassian.net/</url>
   </issueManagement>
+
+  <distributionManagement>
+    <repository>
+      <id>splicemachine-public</id>
+      <name>Splice Machine Public Releases</name>
+      <url>http://repository.splicemachine.com/nexus/content/repositories/releases</url>
+      <uniqueVersion>false</uniqueVersion>
+    </repository>
+    <snapshotRepository>
+      <id>splicemachine-public</id>
+      <name>Splice Machine Public Snapshots</name>
+      <url>http://repository.splicemachine.com/nexus/content/repositories/snapshots</url>
+      <uniqueVersion>false</uniqueVersion>
+    </snapshotRepository>
+  </distributionManagement>
 
   <prerequisites>
     <maven>${maven.version}</maven>
