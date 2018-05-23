@@ -21,7 +21,6 @@ import java.util.Locale
 
 import scala.collection.{GenMap, GenSeq}
 import scala.collection.parallel.ForkJoinTaskSupport
-import scala.concurrent.forkjoin.ForkJoinPool
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.conf.Configuration
@@ -36,7 +35,7 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
 import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.types._
-import org.apache.spark.util.SerializableConfiguration
+import org.apache.spark.util.{SerializableConfiguration, ThreadUtils}
 
 // Note: The definition of these commands are based on the ones described in
 // https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL
@@ -200,14 +199,20 @@ case class DropTableCommand(
         case _ =>
       }
     }
-    try {
-      sparkSession.sharedState.cacheManager.uncacheQuery(sparkSession.table(tableName))
-    } catch {
-      case _: NoSuchTableException if ifExists =>
-      case NonFatal(e) => log.warn(e.toString, e)
+
+    if (catalog.isTemporaryTable(tableName) || catalog.tableExists(tableName)) {
+      try {
+        sparkSession.sharedState.cacheManager.uncacheQuery(sparkSession.table(tableName))
+      } catch {
+        case NonFatal(e) => log.warn(e.toString, e)
+      }
+      catalog.refreshTable(tableName)
+      catalog.dropTable(tableName, ifExists, purge)
+    } else if (ifExists) {
+      // no-op
+    } else {
+      throw new AnalysisException(s"Table or view not found: ${tableName.identifier}")
     }
-    catalog.refreshTable(tableName)
-    catalog.dropTable(tableName, ifExists, purge)
     Seq.empty[Row]
   }
 }
@@ -299,8 +304,8 @@ case class AlterTableChangeColumnCommand(
     val resolver = sparkSession.sessionState.conf.resolver
     DDLUtils.verifyAlterTableType(catalog, table, isView = false)
 
-    // Find the origin column from schema by column name.
-    val originColumn = findColumnByName(table.schema, columnName, resolver)
+    // Find the origin column from dataSchema by column name.
+    val originColumn = findColumnByName(table.dataSchema, columnName, resolver)
     // Throw an AnalysisException if the column name/dataType is changed.
     if (!columnEqual(originColumn, newColumn, resolver)) {
       throw new AnalysisException(
@@ -309,7 +314,7 @@ case class AlterTableChangeColumnCommand(
           s"'${newColumn.name}' with type '${newColumn.dataType}'")
     }
 
-    val newSchema = table.schema.fields.map { field =>
+    val newDataSchema = table.dataSchema.fields.map { field =>
       if (field.name == originColumn.name) {
         // Create a new column from the origin column with the new comment.
         addComment(field, newColumn.getComment)
@@ -317,8 +322,7 @@ case class AlterTableChangeColumnCommand(
         field
       }
     }
-    val newTable = table.copy(schema = StructType(newSchema))
-    catalog.alterTable(newTable)
+    catalog.alterTableDataSchema(tableName, StructType(newDataSchema))
 
     Seq.empty[Row]
   }
@@ -330,7 +334,8 @@ case class AlterTableChangeColumnCommand(
     schema.fields.collectFirst {
       case field if resolver(field.name, name) => field
     }.getOrElse(throw new AnalysisException(
-      s"Invalid column reference '$name', table schema is '${schema}'"))
+      s"Can't find column `$name` given table data columns " +
+        s"${schema.fieldNames.mkString("[`", "`, `", "`]")}"))
   }
 
   // Add the comment to a column, if comment is empty, return the original column.
@@ -582,8 +587,15 @@ case class AlterTableRecoverPartitionsCommand(
     val threshold = spark.conf.get("spark.rdd.parallelListingThreshold", "10").toInt
     val hadoopConf = spark.sparkContext.hadoopConfiguration
     val pathFilter = getPathFilter(hadoopConf)
-    val partitionSpecsAndLocs = scanPartitions(spark, fs, pathFilter, root, Map(),
-      table.partitionColumnNames, threshold, spark.sessionState.conf.resolver)
+
+    val evalPool = ThreadUtils.newForkJoinPool("AlterTableRecoverPartitionsCommand", 8)
+    val partitionSpecsAndLocs: Seq[(TablePartitionSpec, Path)] =
+      try {
+        scanPartitions(spark, fs, pathFilter, root, Map(), table.partitionColumnNames, threshold,
+          spark.sessionState.conf.resolver, new ForkJoinTaskSupport(evalPool)).seq
+      } finally {
+        evalPool.shutdown()
+      }
     val total = partitionSpecsAndLocs.length
     logInfo(s"Found $total partitions in $root")
 
@@ -604,8 +616,6 @@ case class AlterTableRecoverPartitionsCommand(
     Seq.empty[Row]
   }
 
-  @transient private lazy val evalTaskSupport = new ForkJoinTaskSupport(new ForkJoinPool(8))
-
   private def scanPartitions(
       spark: SparkSession,
       fs: FileSystem,
@@ -614,7 +624,8 @@ case class AlterTableRecoverPartitionsCommand(
       spec: TablePartitionSpec,
       partitionNames: Seq[String],
       threshold: Int,
-      resolver: Resolver): GenSeq[(TablePartitionSpec, Path)] = {
+      resolver: Resolver,
+      evalTaskSupport: ForkJoinTaskSupport): GenSeq[(TablePartitionSpec, Path)] = {
     if (partitionNames.isEmpty) {
       return Seq(spec -> path)
     }
@@ -638,7 +649,7 @@ case class AlterTableRecoverPartitionsCommand(
         val value = ExternalCatalogUtils.unescapePathName(ps(1))
         if (resolver(columnName, partitionNames.head)) {
           scanPartitions(spark, fs, filter, st.getPath, spec ++ Map(partitionNames.head -> value),
-            partitionNames.drop(1), threshold, resolver)
+            partitionNames.drop(1), threshold, resolver, evalTaskSupport)
         } else {
           logWarning(
             s"expected partition column ${partitionNames.head}, but got ${ps(0)}, ignoring it")

@@ -591,7 +591,7 @@ setMethod("cache",
 #'
 #' Persist this SparkDataFrame with the specified storage level. For details of the
 #' supported storage levels, refer to
-#' \url{http://spark.apache.org/docs/latest/programming-guide.html#rdd-persistence}.
+#' \url{http://spark.apache.org/docs/latest/rdd-programming-guide.html#rdd-persistence}.
 #'
 #' @param x the SparkDataFrame to persist.
 #' @param newLevel storage level chosen for the persistance. See available options in
@@ -1174,6 +1174,9 @@ setMethod("collect",
                     vec <- do.call(c, col)
                     stopifnot(class(vec) != "list")
                     class(vec) <- PRIMITIVE_TYPES[[colType]]
+                    if (is.character(vec) && stringsAsFactors) {
+                      vec <- as.factor(vec)
+                    }
                     df[[colIndex]] <- vec
                   } else {
                     df[[colIndex]] <- col
@@ -2642,6 +2645,7 @@ generateAliasesForIntersectedCols <- function (x, intersectedColNames, suffix) {
 #' Input SparkDataFrames can have different schemas (names and data types).
 #'
 #' Note: This does not remove duplicate rows across the two SparkDataFrames.
+#' Also as standard in SQL, this function resolves columns by position (not by name).
 #'
 #' @param x A SparkDataFrame
 #' @param y A SparkDataFrame
@@ -3114,7 +3118,7 @@ setMethod("as.data.frame",
 #'
 #' @family SparkDataFrame functions
 #' @rdname attach
-#' @aliases attach,SparkDataFrame-method
+#' @aliases attach attach,SparkDataFrame-method
 #' @param what (SparkDataFrame) The SparkDataFrame to attach
 #' @param pos (integer) Specify position in search() where to attach.
 #' @param name (character) Name to use for the attached SparkDataFrame. Names
@@ -3130,9 +3134,12 @@ setMethod("as.data.frame",
 #' @note attach since 1.6.0
 setMethod("attach",
           signature(what = "SparkDataFrame"),
-          function(what, pos = 2, name = deparse(substitute(what)), warn.conflicts = TRUE) {
-            newEnv <- assignNewEnv(what)
-            attach(newEnv, pos = pos, name = name, warn.conflicts = warn.conflicts)
+          function(what, pos = 2L, name = deparse(substitute(what), backtick = FALSE),
+                   warn.conflicts = TRUE) {
+            args <- as.list(environment()) # capture all parameters - this must be the first line
+            newEnv <- assignNewEnv(args$what)
+            args$what <- newEnv
+            do.call(attach, args)
           })
 
 #' Evaluate a R expression in an environment constructed from a SparkDataFrame
@@ -3641,4 +3648,34 @@ setMethod("checkpoint",
           function(x, eager = TRUE) {
             df <- callJMethod(x@sdf, "checkpoint", as.logical(eager))
             dataFrame(df)
+          })
+
+#' hint
+#'
+#' Specifies execution plan hint and return a new SparkDataFrame.
+#'
+#' @param x a SparkDataFrame.
+#' @param name a name of the hint.
+#' @param ... optional parameters for the hint.
+#' @return A SparkDataFrame.
+#' @family SparkDataFrame functions
+#' @aliases hint,SparkDataFrame,character-method
+#' @rdname hint
+#' @name hint
+#' @export
+#' @examples
+#' \dontrun{
+#' df <- createDataFrame(mtcars)
+#' avg_mpg <- mean(groupBy(createDataFrame(mtcars), "cyl"), "mpg")
+#'
+#' head(join(df, hint(avg_mpg, "broadcast"), df$cyl == avg_mpg$cyl))
+#' }
+#' @note hint since 2.2.0
+setMethod("hint",
+          signature(x = "SparkDataFrame", name = "character"),
+          function(x, name, ...) {
+            parameters <- list(...)
+            stopifnot(all(sapply(parameters, is.character)))
+            jdf <- callJMethod(x@sdf, "hint", name, parameters)
+            dataFrame(jdf)
           })

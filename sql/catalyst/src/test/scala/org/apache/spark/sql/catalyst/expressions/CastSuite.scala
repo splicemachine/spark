@@ -34,7 +34,7 @@ import org.apache.spark.unsafe.types.UTF8String
  */
 class CastSuite extends SparkFunSuite with ExpressionEvalHelper {
 
-  private def cast(v: Any, targetType: DataType, timeZoneId: Option[String] = Some("GMT")): Cast = {
+  private def cast(v: Any, targetType: DataType, timeZoneId: Option[String] = None): Cast = {
     v match {
       case lit: Expression => Cast(lit, targetType, timeZoneId)
       case _ => Cast(Literal(v), targetType, timeZoneId)
@@ -47,7 +47,7 @@ class CastSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   private def checkNullCast(from: DataType, to: DataType): Unit = {
-    checkEvaluation(cast(Literal.create(null, from), to), null)
+    checkEvaluation(cast(Literal.create(null, from), to, Option("GMT")), null)
   }
 
   test("null cast") {
@@ -826,5 +826,23 @@ class CastSuite extends SparkFunSuite with ExpressionEvalHelper {
     val input = Row(10, Row(12L))
 
     checkEvaluation(cast(Literal.create(input, from), to), input)
+  }
+
+  test("SPARK-22500: cast for struct should not generate codes beyond 64KB") {
+    val N = 25
+
+    val fromInner = new StructType(
+      (1 to N).map(i => StructField(s"s$i", DoubleType)).toArray)
+    val toInner = new StructType(
+      (1 to N).map(i => StructField(s"i$i", IntegerType)).toArray)
+    val inputInner = Row.fromSeq((1 to N).map(i => i + 0.5))
+    val outputInner = Row.fromSeq((1 to N))
+    val fromOuter = new StructType(
+      (1 to N).map(i => StructField(s"s$i", fromInner)).toArray)
+    val toOuter = new StructType(
+      (1 to N).map(i => StructField(s"s$i", toInner)).toArray)
+    val inputOuter = Row.fromSeq((1 to N).map(_ => inputInner))
+    val outputOuter = Row.fromSeq((1 to N).map(_ => outputInner))
+    checkEvaluation(cast(Literal.create(inputOuter, fromOuter), toOuter), outputOuter)
   }
 }

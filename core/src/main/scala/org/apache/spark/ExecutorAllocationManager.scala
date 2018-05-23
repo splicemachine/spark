@@ -331,7 +331,7 @@ private[spark] class ExecutorAllocationManager(
       val delta = addExecutors(maxNeeded)
       logDebug(s"Starting timer to add more executors (to " +
         s"expire in $sustainedSchedulerBacklogTimeoutS seconds)")
-      addTime += sustainedSchedulerBacklogTimeoutS * 1000
+      addTime = now + (sustainedSchedulerBacklogTimeoutS * 1000)
       delta
     } else {
       0
@@ -410,7 +410,10 @@ private[spark] class ExecutorAllocationManager(
     executors.foreach { executorIdToBeRemoved =>
       if (newExecutorTotal - 1 < minNumExecutors) {
         logDebug(s"Not removing idle executor $executorIdToBeRemoved because there are only " +
-          s"$newExecutorTotal executor(s) left (limit $minNumExecutors)")
+          s"$newExecutorTotal executor(s) left (minimum number of executor limit $minNumExecutors)")
+      } else if (newExecutorTotal - 1 < numExecutorsTarget) {
+        logDebug(s"Not removing idle executor $executorIdToBeRemoved because there are only " +
+          s"$newExecutorTotal executor(s) left (number of executor target $numExecutorsTarget)")
       } else if (canBeKilled(executorIdToBeRemoved)) {
         executorIdsToBeRemoved += executorIdToBeRemoved
         newExecutorTotal -= 1
@@ -427,6 +430,9 @@ private[spark] class ExecutorAllocationManager(
     } else {
       client.killExecutors(executorIdsToBeRemoved)
     }
+    // [SPARK-21834] killExecutors api reduces the target number of executors.
+    // So we need to update the target with desired value.
+    client.requestTotalExecutors(numExecutorsTarget, localityAwareTasks, hostToLocalTaskCount)
     // reset the newExecutorTotal to the existing number of executors
     newExecutorTotal = numExistingExecutors
     if (testing || executorsRemoved.nonEmpty) {

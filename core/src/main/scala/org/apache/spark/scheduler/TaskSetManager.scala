@@ -56,6 +56,10 @@ private[spark] class TaskSetManager(
 
   private val conf = sched.sc.conf
 
+  // SPARK-21563 make a copy of the jars/files so they are consistent across the TaskSet
+  private val addedJars = HashMap[String, Long](sched.sc.addedJars.toSeq: _*)
+  private val addedFiles = HashMap[String, Long](sched.sc.addedFiles.toSeq: _*)
+
   // Quantile of tasks at which to start speculation
   val SPECULATION_QUANTILE = conf.getDouble("spark.speculation.quantile", 0.75)
   val SPECULATION_MULTIPLIER = conf.getDouble("spark.speculation.multiplier", 1.5)
@@ -70,6 +74,8 @@ private[spark] class TaskSetManager(
   val ser = env.closureSerializer.newInstance()
 
   val tasks = taskSet.tasks
+  private[scheduler] val partitionToIndex = tasks.zipWithIndex
+    .map { case (t, idx) => t.partitionId -> idx }.toMap
   val numTasks = tasks.length
   val copiesRunning = new Array[Int](numTasks)
 
@@ -145,7 +151,7 @@ private[spark] class TaskSetManager(
   private[scheduler] val speculatableTasks = new HashSet[Int]
 
   // Task index, start and finish time for each task attempt (indexed by task ID)
-  private val taskInfos = new HashMap[Long, TaskInfo]
+  private[scheduler] val taskInfos = new HashMap[Long, TaskInfo]
 
   // Use a MedianHeap to record durations of successful tasks so we know when to launch
   // speculative tasks. This is only used when speculation is enabled, to avoid the overhead
@@ -198,7 +204,7 @@ private[spark] class TaskSetManager(
   private[scheduler] var emittedTaskSizeWarning = false
 
   /** Add a task to all the pending-task lists that it should be on. */
-  private def addPendingTask(index: Int) {
+  private[spark] def addPendingTask(index: Int) {
     for (loc <- tasks(index).preferredLocations) {
       loc match {
         case e: ExecutorCacheTaskLocation =>
@@ -502,8 +508,8 @@ private[spark] class TaskSetManager(
           execId,
           taskName,
           index,
-          sched.sc.addedFiles,
-          sched.sc.addedJars,
+          addedFiles,
+          addedJars,
           task.localProperties,
           serializedTask)
       }
@@ -740,6 +746,9 @@ private[spark] class TaskSetManager(
       logInfo("Ignoring task-finished event for " + info.id + " in stage " + taskSet.id +
         " because task " + index + " has already completed successfully")
     }
+    // There may be multiple tasksets for this stage -- we let all of them know that the partition
+    // was completed.  This may result in some of the tasksets getting completed.
+    sched.markPartitionCompletedInAllTaskSets(stageId, tasks(index).partitionId)
     // This method is called by "TaskSchedulerImpl.handleSuccessfulTask" which holds the
     // "TaskSchedulerImpl" lock until exiting. To avoid the SPARK-7655 issue, we should not
     // "deserialize" the value when holding a lock to avoid blocking other threads. So we call
@@ -748,6 +757,19 @@ private[spark] class TaskSetManager(
     // here "result.value()" just returns the value and won't block other threads.
     sched.dagScheduler.taskEnded(tasks(index), Success, result.value(), result.accumUpdates, info)
     maybeFinishTaskSet()
+  }
+
+  private[scheduler] def markPartitionCompleted(partitionId: Int): Unit = {
+    partitionToIndex.get(partitionId).foreach { index =>
+      if (!successful(index)) {
+        tasksSuccessful += 1
+        successful(index) = true
+        if (tasksSuccessful == numTasks) {
+          isZombie = true
+        }
+        maybeFinishTaskSet()
+      }
+    }
   }
 
   /**
@@ -826,15 +848,6 @@ private[spark] class TaskSetManager(
 
     sched.dagScheduler.taskEnded(tasks(index), reason, null, accumUpdates, info)
 
-    if (successful(index)) {
-      logInfo(s"Task ${info.id} in stage ${taskSet.id} (TID $tid) failed, but the task will not" +
-        s" be re-executed (either because the task failed with a shuffle data fetch failure," +
-        s" so the previous stage needs to be re-run, or because a different copy of the task" +
-        s" has already succeeded).")
-    } else {
-      addPendingTask(index)
-    }
-
     if (!isZombie && reason.countTowardsTaskFailures) {
       taskSetBlacklistHelperOpt.foreach(_.updateBlacklistForFailedTask(
         info.host, info.executorId, index))
@@ -848,6 +861,16 @@ private[spark] class TaskSetManager(
         return
       }
     }
+
+    if (successful(index)) {
+      logInfo(s"Task ${info.id} in stage ${taskSet.id} (TID $tid) failed, but the task will not" +
+        s" be re-executed (either because the task failed with a shuffle data fetch failure," +
+        s" so the previous stage needs to be re-run, or because a different copy of the task" +
+        s" has already succeeded).")
+    } else {
+      addPendingTask(index)
+    }
+
     maybeFinishTaskSet()
   }
 

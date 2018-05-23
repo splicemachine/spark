@@ -68,7 +68,7 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
 
   private def assertMetadataNotNull(): Unit = {
     if (metadata == null) {
-      throw new IllegalAccessError("The metadata of this accumulator has not been assigned yet.")
+      throw new IllegalStateException("The metadata of this accumulator has not been assigned yet.")
     }
   }
 
@@ -85,7 +85,12 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
    */
   final def name: Option[String] = {
     assertMetadataNotNull()
-    metadata.name
+
+    if (atDriverSide) {
+      metadata.name.orElse(AccumulatorContext.get(id).flatMap(_.metadata.name))
+    } else {
+      metadata.name
+    }
   }
 
   /**
@@ -161,7 +166,17 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
       }
       val copyAcc = copyAndReset()
       assert(copyAcc.isZero, "copyAndReset must return a zero value copy")
-      copyAcc.metadata = metadata
+      val isInternalAcc = name.isDefined && name.get.startsWith(InternalAccumulator.METRICS_PREFIX)
+      if (isInternalAcc) {
+        // Do not serialize the name of internal accumulator and send it to executor.
+        copyAcc.metadata = metadata.copy(name = None)
+      } else {
+        // For non-internal accumulators, we still need to send the name because users may need to
+        // access the accumulator name at executor side, or they may keep the accumulators sent from
+        // executors and access the name when the registered accumulator is already garbage
+        // collected(e.g. SQLMetrics).
+        copyAcc.metadata = metadata
+      }
       copyAcc
     } else {
       this
@@ -250,7 +265,7 @@ private[spark] object AccumulatorContext {
       // Since we are storing weak references, we must check whether the underlying data is valid.
       val acc = ref.get
       if (acc eq null) {
-        throw new IllegalAccessError(s"Attempted to access garbage collected accumulator $id")
+        throw new IllegalStateException(s"Attempted to access garbage collected accumulator $id")
       }
       acc
     }
@@ -261,16 +276,6 @@ private[spark] object AccumulatorContext {
    */
   def clear(): Unit = {
     originals.clear()
-  }
-
-  /**
-   * Looks for a registered accumulator by accumulator name.
-   */
-  private[spark] def lookForAccumulatorByName(name: String): Option[AccumulatorV2[_, _]] = {
-    originals.values().asScala.find { ref =>
-      val acc = ref.get
-      acc != null && acc.name.isDefined && acc.name.get == name
-    }.map(_.get)
   }
 
   // Identifier for distinguishing SQL metrics from other accumulators
@@ -477,7 +482,9 @@ class LegacyAccumulatorWrapper[R, T](
     param: org.apache.spark.AccumulableParam[R, T]) extends AccumulatorV2[T, R] {
   private[spark] var _value = initialValue  // Current value on driver
 
-  override def isZero: Boolean = _value == param.zero(initialValue)
+  @transient private lazy val _zero = param.zero(initialValue)
+
+  override def isZero: Boolean = _value.asInstanceOf[AnyRef].eq(_zero.asInstanceOf[AnyRef])
 
   override def copy(): LegacyAccumulatorWrapper[R, T] = {
     val acc = new LegacyAccumulatorWrapper(initialValue, param)
@@ -486,7 +493,7 @@ class LegacyAccumulatorWrapper[R, T](
   }
 
   override def reset(): Unit = {
-    _value = param.zero(initialValue)
+    _value = _zero
   }
 
   override def add(v: T): Unit = _value = param.addAccumulator(_value, v)

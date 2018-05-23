@@ -1495,6 +1495,8 @@ class SparkContext(config: SparkConf) extends Logging {
   /**
    * Add a file to be downloaded with this Spark job on every node.
    *
+   * If a file is added during execution, it will not be available until the next TaskSet starts.
+   *
    * @param path can be either a local file, a file in HDFS (or other Hadoop-supported
    * filesystems), or an HTTP, HTTPS or FTP URI. To access the file in Spark jobs,
    * use `SparkFiles.get(fileName)` to find its download location.
@@ -1510,6 +1512,8 @@ class SparkContext(config: SparkConf) extends Logging {
 
   /**
    * Add a file to be downloaded with this Spark job on every node.
+   *
+   * If a file is added during execution, it will not be available until the next TaskSet starts.
    *
    * @param path can be either a local file, a file in HDFS (or other Hadoop-supported
    * filesystems), or an HTTP, HTTPS or FTP URI. To access the file in Spark jobs,
@@ -1734,6 +1738,7 @@ class SparkContext(config: SparkConf) extends Logging {
    * Return information about blocks stored in all of the slaves
    */
   @DeveloperApi
+  @deprecated("This method may change or be removed in a future release.", "2.2.0")
   def getExecutorStorageStatus: Array[StorageStatus] = {
     assertNotStopped()
     env.blockManager.master.getStorageStatus
@@ -1796,44 +1801,46 @@ class SparkContext(config: SparkConf) extends Logging {
 
   /**
    * Adds a JAR dependency for all tasks to be executed on this `SparkContext` in the future.
+   *
+   * If a jar is added during execution, it will not be available until the next TaskSet starts.
+   *
    * @param path can be either a local file, a file in HDFS (or other Hadoop-supported filesystems),
    * an HTTP, HTTPS or FTP URI, or local:/path for a file on every worker node.
    */
   def addJar(path: String) {
+    def addJarFile(file: File): String = {
+      try {
+        if (!file.exists()) {
+          throw new FileNotFoundException(s"Jar ${file.getAbsolutePath} not found")
+        }
+        if (file.isDirectory) {
+          throw new IllegalArgumentException(
+            s"Directory ${file.getAbsoluteFile} is not allowed for addJar")
+        }
+        env.rpcEnv.fileServer.addJar(file)
+      } catch {
+        case NonFatal(e) =>
+          logError(s"Failed to add $path to Spark environment", e)
+          null
+      }
+    }
+
     if (path == null) {
       logWarning("null specified as parameter to addJar")
     } else {
-      var key = ""
-      if (path.contains("\\")) {
+      val key = if (path.contains("\\")) {
         // For local paths with backslashes on Windows, URI throws an exception
-        key = env.rpcEnv.fileServer.addJar(new File(path))
+        addJarFile(new File(path))
       } else {
         val uri = new URI(path)
         // SPARK-17650: Make sure this is a valid URL before adding it to the list of dependencies
         Utils.validateURL(uri)
-        key = uri.getScheme match {
+        uri.getScheme match {
           // A JAR file which exists only on the driver node
-          case null | "file" =>
-            try {
-              val file = new File(uri.getPath)
-              if (!file.exists()) {
-                throw new FileNotFoundException(s"Jar ${file.getAbsolutePath} not found")
-              }
-              if (file.isDirectory) {
-                throw new IllegalArgumentException(
-                  s"Directory ${file.getAbsoluteFile} is not allowed for addJar")
-              }
-              env.rpcEnv.fileServer.addJar(new File(uri.getPath))
-            } catch {
-              case NonFatal(e) =>
-                logError(s"Failed to add $path to Spark environment", e)
-                null
-            }
+          case null | "file" => addJarFile(new File(uri.getPath))
           // A JAR file which exists locally on every worker node
-          case "local" =>
-            "file:" + uri.getPath
-          case _ =>
-            path
+          case "local" => "file:" + uri.getPath
+          case _ => path
         }
       }
       if (key != null) {
@@ -1938,6 +1945,9 @@ class SparkContext(config: SparkConf) extends Logging {
       }
       SparkEnv.set(null)
     }
+    // Clear this `InheritableThreadLocal`, or it will still be inherited in child threads even this
+    // `SparkContext` is stopped.
+    localProperties.remove()
     // Unset YARN mode system env variable, to allow switching between cluster types.
     System.clearProperty("SPARK_YARN_MODE")
     SparkContext.clearActiveContext()

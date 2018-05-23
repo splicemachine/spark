@@ -372,8 +372,8 @@ Apart from these, the following properties are also available, and may be useful
   <td>(?i)secret|password</td>
   <td>
     Regex to decide which Spark configuration properties and environment variables in driver and
-    executor environments contain sensitive information. When this regex matches a property, its
-    value is redacted from the environment UI and various logs like YARN and event logs.
+    executor environments contain sensitive information. When this regex matches a property key or
+    value, the value is redacted from the environment UI and various logs like YARN and event logs.
   </td>
 </tr>
 <tr>
@@ -520,6 +520,27 @@ Apart from these, the following properties are also available, and may be useful
   </td>
 </tr>
 <tr>
+  <td><code>spark.reducer.maxBlocksInFlightPerAddress</code></td>
+  <td>Int.MaxValue</td>
+  <td>
+    This configuration limits the number of remote blocks being fetched per reduce task from a
+    given host port. When a large number of blocks are being requested from a given address in a
+    single fetch or simultaneously, this could crash the serving executor or Node Manager. This
+    is especially useful to reduce the load on the Node Manager when external shuffle is enabled.
+    You can mitigate this issue by setting it to a lower value.
+  </td>
+</tr>
+<tr>
+  <td><code>spark.reducer.maxReqSizeShuffleToMem</code></td>
+  <td>Long.MaxValue</td>
+  <td>
+    The blocks of a shuffle request will be fetched to disk when size of the request is above
+    this threshold. This is to avoid a giant request takes too much memory. We can enable this
+    config by setting a specific value(e.g. 200m). Note that this config can be enabled only when
+    the shuffle shuffle service is newer than Spark-2.2 or the shuffle service is disabled.
+  </td>
+</tr>
+<tr>
   <td><code>spark.shuffle.compress</code></td>
   <td>true</td>
   <td>
@@ -610,6 +631,15 @@ Apart from these, the following properties are also available, and may be useful
   <td>
     Whether to compress data spilled during shuffles. Compression will use
     <code>spark.io.compression.codec</code>.
+  </td>
+</tr>
+<tr>
+  <td><code>spark.shuffle.accurateBlockThreshold</code></td>
+  <td>100 * 1024 * 1024</td>
+  <td>
+    When we compress the size of shuffle blocks in HighlyCompressedMapStatus, we will record the
+    size accurately if it's above this config. This helps to prevent OOM by avoiding
+    underestimating shuffle block size when fetch shuffle blocks.
   </td>
 </tr>
 <tr>
@@ -1012,7 +1042,7 @@ Apart from these, the following properties are also available, and may be useful
   </td>
 </tr>
 <tr>
-  <td><code>spark.storage.replication.proactive<code></td>
+  <td><code>spark.storage.replication.proactive</code></td>
   <td>false</td>
   <td>
     Enables proactive block replication for RDD blocks. Cached RDD block replicas lost due to
@@ -1526,6 +1556,8 @@ Apart from these, the following properties are also available, and may be useful
     of this setting is to act as a safety-net to prevent runaway uncancellable tasks from rendering
     an executor unusable.
   </td>
+</tr>
+<tr>
   <td><code>spark.stage.maxConsecutiveAttempts</code></td>
   <td>4</td>
   <td>
@@ -1746,14 +1778,6 @@ Apart from these, the following properties are also available, and may be useful
     How long for the connection to wait for ack to occur before timing
     out and giving up. To avoid unwilling timeout caused by long pause like GC,
     you can set larger value.
-  </td>
-</tr>
-<tr>
-  <td><code>spark.core.connection.auth.wait.timeout</code></td>
-  <td>30s</td>
-  <td>
-    How long for the connection to wait for authentication to occur before timing
-    out and giving up.
   </td>
 </tr>
 <tr>
@@ -2270,8 +2294,8 @@ should be included on Spark's classpath:
 * `hdfs-site.xml`, which provides default behaviors for the HDFS client.
 * `core-site.xml`, which sets the default filesystem name.
 
-The location of these configuration files varies across CDH and HDP versions, but
-a common location is inside of `/etc/hadoop/conf`. Some tools, such as Cloudera Manager, create
+The location of these configuration files varies across Hadoop versions, but
+a common location is inside of `/etc/hadoop/conf`. Some tools create
 configurations on-the-fly, but offer a mechanisms to download copies of them.
 
 To make these files visible to Spark, set `HADOOP_CONF_DIR` in `$SPARK_HOME/spark-env.sh`

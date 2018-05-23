@@ -18,11 +18,16 @@
 package org.apache.spark.deploy
 
 import java.io._
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
 import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
 
 import com.google.common.io.ByteStreams
+import org.apache.commons.io.{FilenameUtils, FileUtils}
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileStatus, Path, RawLocalFileSystem}
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.scalatest.concurrent.Timeouts
 import org.scalatest.time.SpanSugar._
@@ -34,6 +39,7 @@ import org.apache.spark.deploy.SparkSubmitUtils.MavenCoordinate
 import org.apache.spark.internal.config._
 import org.apache.spark.internal.Logging
 import org.apache.spark.TestUtils.JavaSourceFromString
+import org.apache.spark.scheduler.EventLoggingListener
 import org.apache.spark.util.{CommandLineUtils, ResetSystemProperties, Utils}
 
 
@@ -404,6 +410,37 @@ class SparkSubmitSuite
     runSparkSubmit(args)
   }
 
+  test("launch simple application with spark-submit with redaction") {
+    val testDir = Utils.createTempDir()
+    testDir.deleteOnExit()
+    val testDirPath = new Path(testDir.getAbsolutePath())
+    val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
+    val fileSystem = Utils.getHadoopFileSystem("/",
+      SparkHadoopUtil.get.newConfiguration(new SparkConf()))
+    try {
+      val args = Seq(
+        "--class", SimpleApplicationTest.getClass.getName.stripSuffix("$"),
+        "--name", "testApp",
+        "--master", "local",
+        "--conf", "spark.ui.enabled=false",
+        "--conf", "spark.master.rest.enabled=false",
+        "--conf", "spark.executorEnv.HADOOP_CREDSTORE_PASSWORD=secret_password",
+        "--conf", "spark.eventLog.enabled=true",
+        "--conf", "spark.eventLog.testing=true",
+        "--conf", s"spark.eventLog.dir=${testDirPath.toUri.toString}",
+        "--conf", "spark.hadoop.fs.defaultFS=unsupported://example.com",
+        unusedJar.toString)
+      runSparkSubmit(args)
+      val listStatus = fileSystem.listStatus(testDirPath)
+      val logData = EventLoggingListener.openEventLog(listStatus.last.getPath, fileSystem)
+      Source.fromInputStream(logData).getLines().foreach { line =>
+        assert(!line.contains("secret_password"))
+      }
+    } finally {
+      Utils.deleteRecursively(testDir)
+    }
+  }
+
   test("includes jars passed in through --jars") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val jar1 = TestUtils.createJarWithClasses(Seq("SparkSubmitClassA"))
@@ -448,8 +485,8 @@ class SparkSubmitSuite
     assume(RUtils.isSparkRInstalled, "SparkR is not installed in this build.")
     val main = MavenCoordinate("my.great.lib", "mylib", "0.1")
     val sparkHome = sys.props.getOrElse("spark.test.home", fail("spark.test.home is not set!"))
-    val rScriptDir =
-      Seq(sparkHome, "R", "pkg", "inst", "tests", "packageInAJarTest.R").mkString(File.separator)
+    val rScriptDir = Seq(
+      sparkHome, "R", "pkg", "tests", "fulltests", "packageInAJarTest.R").mkString(File.separator)
     assert(new File(rScriptDir).exists)
     IvyTestUtils.withRepository(main, None, None, withR = true) { repo =>
       val args = Seq(
@@ -470,7 +507,7 @@ class SparkSubmitSuite
     // Check if the SparkR package is installed
     assume(RUtils.isSparkRInstalled, "SparkR is not installed in this build.")
     val rScriptDir =
-      Seq(sparkHome, "R", "pkg", "inst", "tests", "testthat", "jarTest.R").mkString(File.separator)
+      Seq(sparkHome, "R", "pkg", "tests", "fulltests", "jarTest.R").mkString(File.separator)
     assert(new File(rScriptDir).exists)
 
     // compile a small jar containing a class that will be called from R code.
@@ -501,7 +538,7 @@ class SparkSubmitSuite
 
   test("resolves command line argument paths correctly") {
     val jars = "/jar1,/jar2"                 // --jars
-    val files = "hdfs:/file1,file2"          // --files
+    val files = "local:/file1,file2"          // --files
     val archives = "file:/archive1,archive2" // --archives
     val pyFiles = "py-file1,py-file2"        // --py-files
 
@@ -553,7 +590,7 @@ class SparkSubmitSuite
 
   test("resolves config paths correctly") {
     val jars = "/jar1,/jar2" // spark.jars
-    val files = "hdfs:/file1,file2" // spark.files / spark.yarn.dist.files
+    val files = "local:/file1,file2" // spark.files / spark.yarn.dist.files
     val archives = "file:/archive1,archive2" // spark.yarn.dist.archives
     val pyFiles = "py-file1,py-file2" // spark.submit.pyFiles
 
@@ -671,6 +708,115 @@ class SparkSubmitSuite
   }
   // scalastyle:on println
 
+  private def checkDownloadedFile(sourcePath: String, outputPath: String): Unit = {
+    if (sourcePath == outputPath) {
+      return
+    }
+
+    val sourceUri = new URI(sourcePath)
+    val outputUri = new URI(outputPath)
+    assert(outputUri.getScheme === "file")
+
+    // The path and filename are preserved.
+    assert(outputUri.getPath.endsWith(sourceUri.getPath))
+    assert(FileUtils.readFileToString(new File(outputUri.getPath)) ===
+      FileUtils.readFileToString(new File(sourceUri.getPath)))
+  }
+
+  private def deleteTempOutputFile(outputPath: String): Unit = {
+    val outputFile = new File(new URI(outputPath).getPath)
+    if (outputFile.exists) {
+      outputFile.delete()
+    }
+  }
+
+  test("downloadFile - invalid url") {
+    intercept[IOException] {
+      SparkSubmit.downloadFile("abc:/my/file", new Configuration())
+    }
+  }
+
+  test("downloadFile - file doesn't exist") {
+    val hadoopConf = new Configuration()
+    updateConfWithFakeS3Fs(hadoopConf)
+    intercept[FileNotFoundException] {
+      SparkSubmit.downloadFile("s3a:/no/such/file", hadoopConf)
+    }
+  }
+
+  test("downloadFile does not download local file") {
+    // empty path is considered as local file.
+    assert(SparkSubmit.downloadFile("", new Configuration()) === "")
+    assert(SparkSubmit.downloadFile("/local/file", new Configuration()) === "/local/file")
+  }
+
+  test("download one file to local") {
+    val jarFile = File.createTempFile("test", ".jar")
+    jarFile.deleteOnExit()
+    val content = "hello, world"
+    FileUtils.write(jarFile, content)
+    val hadoopConf = new Configuration()
+    updateConfWithFakeS3Fs(hadoopConf)
+    val sourcePath = s"s3a://${jarFile.getAbsolutePath}"
+    val outputPath = SparkSubmit.downloadFile(sourcePath, hadoopConf)
+    checkDownloadedFile(sourcePath, outputPath)
+    deleteTempOutputFile(outputPath)
+  }
+
+  test("download list of files to local") {
+    val jarFile = File.createTempFile("test", ".jar")
+    jarFile.deleteOnExit()
+    val content = "hello, world"
+    FileUtils.write(jarFile, content)
+    val hadoopConf = new Configuration()
+    updateConfWithFakeS3Fs(hadoopConf)
+    val sourcePaths = Seq("/local/file", s"s3a://${jarFile.getAbsolutePath}")
+    val outputPaths = SparkSubmit.downloadFileList(sourcePaths.mkString(","), hadoopConf).split(",")
+
+    assert(outputPaths.length === sourcePaths.length)
+    sourcePaths.zip(outputPaths).foreach { case (sourcePath, outputPath) =>
+      checkDownloadedFile(sourcePath, outputPath)
+      deleteTempOutputFile(outputPath)
+    }
+  }
+
+  test("Avoid re-upload remote resources in yarn client mode") {
+    val hadoopConf = new Configuration()
+    updateConfWithFakeS3Fs(hadoopConf)
+
+    val tmpDir = Utils.createTempDir()
+    val file = File.createTempFile("tmpFile", "", tmpDir)
+    val pyFile = File.createTempFile("tmpPy", ".egg", tmpDir)
+    val mainResource = File.createTempFile("tmpPy", ".py", tmpDir)
+    val tmpJar = TestUtils.createJarWithFiles(Map("test.resource" -> "USER"), tmpDir)
+    val tmpJarPath = s"s3a://${new File(tmpJar.toURI).getAbsolutePath}"
+
+    val args = Seq(
+      "--class", UserClasspathFirstTest.getClass.getName.stripPrefix("$"),
+      "--name", "testApp",
+      "--master", "yarn",
+      "--deploy-mode", "client",
+      "--jars", tmpJarPath,
+      "--files", s"s3a://${file.getAbsolutePath}",
+      "--py-files", s"s3a://${pyFile.getAbsolutePath}",
+      s"s3a://$mainResource"
+      )
+
+    val appArgs = new SparkSubmitArguments(args)
+    val sysProps = SparkSubmit.prepareSubmitEnvironment(appArgs, Some(hadoopConf))._3
+
+    // All the resources should still be remote paths, so that YARN client will not upload again.
+    sysProps("spark.yarn.dist.jars") should be (tmpJarPath)
+    sysProps("spark.yarn.dist.files") should be (s"s3a://${file.getAbsolutePath}")
+    sysProps("spark.yarn.dist.pyFiles") should be (s"s3a://${pyFile.getAbsolutePath}")
+
+    // Local repl jars should be a local path.
+    sysProps("spark.repl.local.jars") should (startWith("file:"))
+
+    // local py files should not be a URI format.
+    sysProps("spark.submit.pyFiles") should (startWith("/"))
+  }
+
   // NOTE: This is an expensive operation in terms of time (10 seconds+). Use sparingly.
   private def runSparkSubmit(args: Seq[String]): Unit = {
     val sparkHome = sys.props.getOrElse("spark.test.home", fail("spark.test.home is not set!"))
@@ -709,6 +855,11 @@ class SparkSubmitSuite
     } finally {
       Utils.deleteRecursively(tmpDir)
     }
+  }
+
+  private def updateConfWithFakeS3Fs(conf: Configuration): Unit = {
+    conf.set("fs.s3a.impl", classOf[TestFileSystem].getCanonicalName)
+    conf.set("fs.s3a.impl.disable.cache", "true")
   }
 }
 
@@ -770,6 +921,22 @@ object UserClasspathFirstTest {
     val contents = new String(bytes, 0, bytes.length, StandardCharsets.UTF_8)
     if (contents != "USER") {
       throw new SparkException("Should have read user resource, but instead read: " + contents)
+    }
+  }
+}
+
+class TestFileSystem extends org.apache.hadoop.fs.LocalFileSystem {
+  override def copyToLocalFile(src: Path, dst: Path): Unit = {
+    // Ignore the scheme for testing.
+    super.copyToLocalFile(new Path(src.toUri.getPath), dst)
+  }
+
+  override def globStatus(pathPattern: Path): Array[FileStatus] = {
+    val newPath = new Path(pathPattern.toUri.getPath)
+    super.globStatus(newPath).map { status =>
+      val path = s"s3a://${status.getPath.toUri.getPath}"
+      status.setPath(new Path(path))
+      status
     }
   }
 }

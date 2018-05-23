@@ -49,4 +49,11 @@ case class SaveIntoDataSourceCommand(
 
     Seq.empty[Row]
   }
+
+  override def simpleString: String = {
+    val redacted = SparkSession.getActiveSession
+      .map(_.sessionState.conf.redactOptions(options))
+      .getOrElse(Map())
+    s"SaveIntoDataSourceCommand ${provider}, ${redacted}, ${mode}"
+  }
 }

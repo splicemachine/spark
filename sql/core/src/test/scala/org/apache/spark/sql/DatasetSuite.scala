@@ -20,12 +20,15 @@ package org.apache.spark.sql
 import java.io.{Externalizable, ObjectInput, ObjectOutput}
 import java.sql.{Date, Timestamp}
 
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.encoders.{OuterScopes, RowEncoder}
+import org.apache.spark.sql.catalyst.plans.{LeftAnti, LeftSemi}
 import org.apache.spark.sql.catalyst.util.sideBySide
 import org.apache.spark.sql.execution.{LogicalRDD, RDDScanExec, SortExec}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleExchange}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types._
 
@@ -318,6 +321,21 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
       ds1.joinWith(ds2, $"a._2" === $"b._2").as("ab").joinWith(ds3, $"ab._1._2" === $"c._2"),
       ((("a", 1), ("a", 1)), ("a", 1)),
       ((("b", 2), ("b", 2)), ("b", 2)))
+  }
+
+  test("joinWith join types") {
+    val ds1 = Seq(1, 2, 3).toDS().as("a")
+    val ds2 = Seq(1, 2).toDS().as("b")
+
+    val e1 = intercept[AnalysisException] {
+      ds1.joinWith(ds2, $"a.value" === $"b.value", "left_semi")
+    }.getMessage
+    assert(e1.contains("Invalid join type in joinWith: " + LeftSemi.sql))
+
+    val e2 = intercept[AnalysisException] {
+      ds1.joinWith(ds2, $"a.value" === $"b.value", "left_anti")
+    }.getMessage
+    assert(e2.contains("Invalid join type in joinWith: " + LeftAnti.sql))
   }
 
   test("groupBy function, keys") {
@@ -1168,6 +1186,58 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
     val ds = Seq(WithMapInOption(Some(Map(1 -> 1)))).toDS()
     checkDataset(ds, WithMapInOption(Some(Map(1 -> 1))))
   }
+
+  test("SPARK-20399: do not unescaped regex pattern when ESCAPED_STRING_LITERALS is enabled") {
+    withSQLConf(SQLConf.ESCAPED_STRING_LITERALS.key -> "true") {
+      val data = Seq("\u0020\u0021\u0023", "abc")
+      val df = data.toDF()
+      val rlike1 = df.filter("value rlike '^\\x20[\\x20-\\x23]+$'")
+      val rlike2 = df.filter($"value".rlike("^\\x20[\\x20-\\x23]+$"))
+      val rlike3 = df.filter("value rlike '^\\\\x20[\\\\x20-\\\\x23]+$'")
+      checkAnswer(rlike1, rlike2)
+      assert(rlike3.count() == 0)
+    }
+  }
+
+  test("SPARK-21538: Attribute resolution inconsistency in Dataset API") {
+    val df = spark.range(3).withColumnRenamed("id", "x")
+    val expected = Row(0) :: Row(1) :: Row (2) :: Nil
+    checkAnswer(df.sort("id"), expected)
+    checkAnswer(df.sort(col("id")), expected)
+    checkAnswer(df.sort($"id"), expected)
+    checkAnswer(df.sort('id), expected)
+    checkAnswer(df.orderBy("id"), expected)
+    checkAnswer(df.orderBy(col("id")), expected)
+    checkAnswer(df.orderBy($"id"), expected)
+    checkAnswer(df.orderBy('id), expected)
+  }
+
+  test("SPARK-22472: add null check for top-level primitive values") {
+    // If the primitive values are from Option, we need to do runtime null check.
+    val ds = Seq(Some(1), None).toDS().as[Int]
+    intercept[NullPointerException](ds.collect())
+    val e = intercept[SparkException](ds.map(_ * 2).collect())
+    assert(e.getCause.isInstanceOf[NullPointerException])
+
+    withTempPath { path =>
+      Seq(new Integer(1), null).toDF("i").write.parquet(path.getCanonicalPath)
+      // If the primitive values are from files, we need to do runtime null check.
+      val ds = spark.read.parquet(path.getCanonicalPath).as[Int]
+      intercept[NullPointerException](ds.collect())
+      val e = intercept[SparkException](ds.map(_ * 2).collect())
+      assert(e.getCause.isInstanceOf[NullPointerException])
+    }
+  }
+
+  test("SPARK-22442: Generate correct field names for special characters") {
+    withTempPath { dir =>
+      val path = dir.getCanonicalPath
+      val data = """{"field.1": 1, "field 2": 2}"""
+      Seq(data).toDF().repartition(1).write.text(path)
+      val ds = spark.read.json(path).as[SpecialCharClass]
+      checkDataset(ds, SpecialCharClass("1", "2"))
+    }
+  }
 }
 
 case class WithImmutableMap(id: String, map_test: scala.collection.immutable.Map[Long, String])
@@ -1253,3 +1323,5 @@ case class CircularReferenceClassB(cls: CircularReferenceClassA)
 case class CircularReferenceClassC(ar: Array[CircularReferenceClassC])
 case class CircularReferenceClassD(map: Map[String, CircularReferenceClassE])
 case class CircularReferenceClassE(id: String, list: List[CircularReferenceClassD])
+
+case class SpecialCharClass(`field.1`: String, `field 2`: String)

@@ -87,7 +87,7 @@ package object config {
     .intConf
     .createOptional
 
-  private[spark] val PY_FILES = ConfigBuilder("spark.submit.pyFiles")
+  private[spark] val PY_FILES = ConfigBuilder("spark.yarn.dist.pyFiles")
     .internal()
     .stringConf
     .toSequence
@@ -244,8 +244,8 @@ package object config {
     ConfigBuilder("spark.redaction.regex")
       .doc("Regex to decide which Spark configuration properties and environment variables in " +
         "driver and executor environments contain sensitive information. When this regex matches " +
-        "a property, its value is redacted from the environment UI and various logs like YARN " +
-        "and event logs.")
+        "a property key or value, the value is redacted from the environment UI and various logs " +
+        "like YARN and event logs.")
       .regexConf
       .createWithDefault("(?i)secret|password".r)
 
@@ -256,6 +256,11 @@ package object config {
         "dummy value. This is currently used to redact the output of SQL explain commands.")
       .regexConf
       .createOptional
+
+  private[spark] val AUTH_SECRET_BIT_LENGTH =
+    ConfigBuilder("spark.authenticate.secretBitLength")
+      .intConf
+      .createWithDefault(256)
 
   private[spark] val NETWORK_AUTH_ENABLED =
     ConfigBuilder("spark.authenticate")
@@ -272,4 +277,39 @@ package object config {
       .booleanConf
       .createWithDefault(false)
 
+  private[spark] val CHECKPOINT_COMPRESS =
+    ConfigBuilder("spark.checkpoint.compress")
+      .doc("Whether to compress RDD checkpoints. Generally a good idea. Compression will use " +
+        "spark.io.compression.codec.")
+      .booleanConf
+      .createWithDefault(false)
+
+  private[spark] val SHUFFLE_ACCURATE_BLOCK_THRESHOLD =
+    ConfigBuilder("spark.shuffle.accurateBlockThreshold")
+      .doc("When we compress the size of shuffle blocks in HighlyCompressedMapStatus, we will " +
+        "record the size accurately if it's above this config. This helps to prevent OOM by " +
+        "avoiding underestimating shuffle block size when fetch shuffle blocks.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(100 * 1024 * 1024)
+
+  private[spark] val REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS =
+    ConfigBuilder("spark.reducer.maxBlocksInFlightPerAddress")
+      .doc("This configuration limits the number of remote blocks being fetched per reduce task" +
+        " from a given host port. When a large number of blocks are being requested from a given" +
+        " address in a single fetch or simultaneously, this could crash the serving executor or" +
+        " Node Manager. This is especially useful to reduce the load on the Node Manager when" +
+        " external shuffle is enabled. You can mitigate the issue by setting it to a lower value.")
+      .intConf
+      .checkValue(_ > 0, "The max no. of blocks in flight cannot be non-positive.")
+      .createWithDefault(Int.MaxValue)
+
+  private[spark] val REDUCER_MAX_REQ_SIZE_SHUFFLE_TO_MEM =
+    ConfigBuilder("spark.reducer.maxReqSizeShuffleToMem")
+      .doc("The blocks of a shuffle request will be fetched to disk when size of the request is " +
+        "above this threshold. This is to avoid a giant request takes too much memory. We can " +
+        "enable this config by setting a specific value(e.g. 200m). Note that this config can " +
+        "be enabled only when the shuffle shuffle service is newer than Spark-2.2 or the shuffle" +
+        " service is disabled.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(Long.MaxValue)
 }

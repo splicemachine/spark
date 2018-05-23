@@ -27,6 +27,7 @@ import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.serializer._
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.ScalaReflection.universe.newTermName
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -189,11 +190,13 @@ case class Invoke(
   override def eval(input: InternalRow): Any =
     throw new UnsupportedOperationException("Only code-generated evaluation is supported.")
 
+  private lazy val encodedFunctionName = newTermName(functionName).encodedName.toString
+
   @transient lazy val method = targetObject.dataType match {
     case ObjectType(cls) =>
-      val m = cls.getMethods.find(_.getName == functionName)
+      val m = cls.getMethods.find(_.getName == encodedFunctionName)
       if (m.isEmpty) {
-        sys.error(s"Couldn't find $functionName on $cls")
+        sys.error(s"Couldn't find $encodedFunctionName on $cls")
       } else {
         m
       }
@@ -222,7 +225,7 @@ case class Invoke(
     }
 
     val evaluate = if (returnPrimitive) {
-      getFuncResult(ev.value, s"${obj.value}.$functionName($argString)")
+      getFuncResult(ev.value, s"${obj.value}.$encodedFunctionName($argString)")
     } else {
       val funcResult = ctx.freshName("funcResult")
       // If the function can return null, we do an extra check to make sure our null bit is still
@@ -240,7 +243,7 @@ case class Invoke(
       }
       s"""
         Object $funcResult = null;
-        ${getFuncResult(funcResult, s"${obj.value}.$functionName($argString)")}
+        ${getFuncResult(funcResult, s"${obj.value}.$encodedFunctionName($argString)")}
         $assignResult
       """
     }
@@ -659,18 +662,21 @@ object ExternalMapToCatalyst {
       inputMap: Expression,
       keyType: DataType,
       keyConverter: Expression => Expression,
+      keyNullable: Boolean,
       valueType: DataType,
       valueConverter: Expression => Expression,
       valueNullable: Boolean): ExternalMapToCatalyst = {
     val id = curId.getAndIncrement()
     val keyName = "ExternalMapToCatalyst_key" + id
+    val keyIsNull = "ExternalMapToCatalyst_key_isNull" + id
     val valueName = "ExternalMapToCatalyst_value" + id
     val valueIsNull = "ExternalMapToCatalyst_value_isNull" + id
 
     ExternalMapToCatalyst(
       keyName,
+      keyIsNull,
       keyType,
-      keyConverter(LambdaVariable(keyName, "false", keyType, false)),
+      keyConverter(LambdaVariable(keyName, keyIsNull, keyType, keyNullable)),
       valueName,
       valueIsNull,
       valueType,
@@ -686,6 +692,8 @@ object ExternalMapToCatalyst {
  *
  * @param key the name of the map key variable that used when iterate the map, and used as input for
  *            the `keyConverter`
+ * @param keyIsNull the nullability of the map key variable that used when iterate the map, and
+ *                  used as input for the `keyConverter`
  * @param keyType the data type of the map key variable that used when iterate the map, and used as
  *                input for the `keyConverter`
  * @param keyConverter A function that take the `key` as input, and converts it to catalyst format.
@@ -701,6 +709,7 @@ object ExternalMapToCatalyst {
  */
 case class ExternalMapToCatalyst private(
     key: String,
+    keyIsNull: String,
     keyType: DataType,
     keyConverter: Expression,
     value: String,
@@ -729,6 +738,13 @@ case class ExternalMapToCatalyst private(
     val entry = ctx.freshName("entry")
     val entries = ctx.freshName("entries")
 
+    val keyElementJavaType = ctx.javaType(keyType)
+    val valueElementJavaType = ctx.javaType(valueType)
+    ctx.addMutableState("boolean", keyIsNull, "")
+    ctx.addMutableState(keyElementJavaType, key, "")
+    ctx.addMutableState("boolean", valueIsNull, "")
+    ctx.addMutableState(valueElementJavaType, value, "")
+
     val (defineEntries, defineKeyValue) = child.dataType match {
       case ObjectType(cls) if classOf[java.util.Map[_, _]].isAssignableFrom(cls) =>
         val javaIteratorCls = classOf[java.util.Iterator[_]].getName
@@ -740,8 +756,8 @@ case class ExternalMapToCatalyst private(
         val defineKeyValue =
           s"""
             final $javaMapEntryCls $entry = ($javaMapEntryCls) $entries.next();
-            ${ctx.javaType(keyType)} $key = (${ctx.boxedType(keyType)}) $entry.getKey();
-            ${ctx.javaType(valueType)} $value = (${ctx.boxedType(valueType)}) $entry.getValue();
+            $key = (${ctx.boxedType(keyType)}) $entry.getKey();
+            $value = (${ctx.boxedType(valueType)}) $entry.getValue();
           """
 
         defineEntries -> defineKeyValue
@@ -755,17 +771,23 @@ case class ExternalMapToCatalyst private(
         val defineKeyValue =
           s"""
             final $scalaMapEntryCls $entry = ($scalaMapEntryCls) $entries.next();
-            ${ctx.javaType(keyType)} $key = (${ctx.boxedType(keyType)}) $entry._1();
-            ${ctx.javaType(valueType)} $value = (${ctx.boxedType(valueType)}) $entry._2();
+            $key = (${ctx.boxedType(keyType)}) $entry._1();
+            $value = (${ctx.boxedType(valueType)}) $entry._2();
           """
 
         defineEntries -> defineKeyValue
     }
 
-    val valueNullCheck = if (ctx.isPrimitiveType(valueType)) {
-      s"boolean $valueIsNull = false;"
+    val keyNullCheck = if (ctx.isPrimitiveType(keyType)) {
+      s"$keyIsNull = false;"
     } else {
-      s"boolean $valueIsNull = $value == null;"
+      s"$keyIsNull = $key == null;"
+    }
+
+    val valueNullCheck = if (ctx.isPrimitiveType(valueType)) {
+      s"$valueIsNull = false;"
+    } else {
+      s"$valueIsNull = $value == null;"
     }
 
     val arrayCls = classOf[GenericArrayData].getName
@@ -784,6 +806,7 @@ case class ExternalMapToCatalyst private(
           $defineEntries
           while($entries.hasNext()) {
             $defineKeyValue
+            $keyNullCheck
             $valueNullCheck
 
             ${genKeyConverter.code}

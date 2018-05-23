@@ -324,6 +324,14 @@ class LinearRegressionSummary(JavaWrapper):
         return self._call_java("numInstances")
 
     @property
+    @since("2.2.0")
+    def degreesOfFreedom(self):
+        """
+        Degrees of freedom.
+        """
+        return self._call_java("degreesOfFreedom")
+
+    @property
     @since("2.0.0")
     def devianceResiduals(self):
         """
@@ -1107,7 +1115,7 @@ class AFTSurvivalRegression(JavaEstimator, HasFeaturesCol, HasLabelCol, HasPredi
     >>> from pyspark.ml.linalg import Vectors
     >>> df = spark.createDataFrame([
     ...     (1.0, Vectors.dense(1.0), 1.0),
-    ...     (0.0, Vectors.sparse(1, [], []), 0.0)], ["label", "features", "censor"])
+    ...     (1e-40, Vectors.sparse(1, [], []), 0.0)], ["label", "features", "censor"])
     >>> aftsr = AFTSurvivalRegression()
     >>> model = aftsr.fit(df)
     >>> model.predict(Vectors.dense(6.3))
@@ -1115,12 +1123,12 @@ class AFTSurvivalRegression(JavaEstimator, HasFeaturesCol, HasLabelCol, HasPredi
     >>> model.predictQuantiles(Vectors.dense(6.3))
     DenseVector([0.0101, 0.0513, 0.1054, 0.2877, 0.6931, 1.3863, 2.3026, 2.9957, 4.6052])
     >>> model.transform(df).show()
-    +-----+---------+------+----------+
-    |label| features|censor|prediction|
-    +-----+---------+------+----------+
-    |  1.0|    [1.0]|   1.0|       1.0|
-    |  0.0|(1,[],[])|   0.0|       1.0|
-    +-----+---------+------+----------+
+    +-------+---------+------+----------+
+    |  label| features|censor|prediction|
+    +-------+---------+------+----------+
+    |    1.0|    [1.0]|   1.0|       1.0|
+    |1.0E-40|(1,[],[])|   0.0|       1.0|
+    +-------+---------+------+----------+
     ...
     >>> aftsr_path = temp_path + "/aftsr"
     >>> aftsr.save(aftsr_path)
@@ -1564,6 +1572,14 @@ class GeneralizedLinearRegressionSummary(JavaWrapper):
         This is set to a new column name if the original model's `predictionCol` is not set.
         """
         return self._call_java("predictionCol")
+
+    @property
+    @since("2.2.0")
+    def numInstances(self):
+        """
+        Number of instances in DataFrame predictions.
+        """
+        return self._call_java("numInstances")
 
     @property
     @since("2.0.0")

@@ -38,6 +38,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.input.PortableDataStream
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.security.SocketAuthHelper
 import org.apache.spark.util._
 
 
@@ -360,6 +361,9 @@ private[spark] class PythonRunner(
   class MonitorThread(env: SparkEnv, worker: Socket, context: TaskContext)
     extends Thread(s"Worker Monitor for $pythonExec") {
 
+    /** How long to wait before killing the python worker if a task cannot be interrupted. */
+    private val taskKillTimeout = env.conf.getTimeAsMs("spark.python.task.killTimeout", "2s")
+
     setDaemon(true)
 
     override def run() {
@@ -369,12 +373,18 @@ private[spark] class PythonRunner(
         Thread.sleep(2000)
       }
       if (!context.isCompleted) {
-        try {
-          logWarning("Incomplete task interrupted: Attempting to kill Python Worker")
-          env.destroyPythonWorker(pythonExec, envVars.asScala.toMap, worker)
-        } catch {
-          case e: Exception =>
-            logError("Exception when trying to kill worker", e)
+        Thread.sleep(taskKillTimeout)
+        if (!context.isCompleted) {
+          try {
+            // Mimic the task name used in `Executor` to help the user find out the task to blame.
+            val taskName = s"${context.partitionId}.${context.taskAttemptId} " +
+              s"in stage ${context.stageId} (TID ${context.taskAttemptId})"
+            logWarning(s"Incomplete task $taskName interrupted: Attempting to kill Python Worker")
+            env.destroyPythonWorker(pythonExec, envVars.asScala.toMap, worker)
+          } catch {
+            case e: Exception =>
+              logError("Exception when trying to kill worker", e)
+          }
         }
       }
     }
@@ -412,6 +422,12 @@ private[spark] object PythonRDD extends Logging {
   // remember the broadcasts sent to each worker
   private val workerBroadcasts = new mutable.WeakHashMap[Socket, mutable.Set[Long]]()
 
+  // Authentication helper used when serving iterator data.
+  private lazy val authHelper = {
+    val conf = Option(SparkEnv.get).map(_.conf).getOrElse(new SparkConf())
+    new SocketAuthHelper(conf)
+  }
+
   def getWorkerBroadcasts(worker: Socket): mutable.Set[Long] = {
     synchronized {
       workerBroadcasts.getOrElseUpdate(worker, new mutable.HashSet[Long]())
@@ -434,12 +450,13 @@ private[spark] object PythonRDD extends Logging {
    * (effectively a collect()), but allows you to run on a certain subset of partitions,
    * or to enable local execution.
    *
-   * @return the port number of a local socket which serves the data collected from this job.
+   * @return 2-tuple (as a Java array) with the port number of a local socket which serves the
+   *         data collected from this job, and the secret for authentication.
    */
   def runJob(
       sc: SparkContext,
       rdd: JavaRDD[Array[Byte]],
-      partitions: JArrayList[Int]): Int = {
+      partitions: JArrayList[Int]): Array[Any] = {
     type ByteArray = Array[Byte]
     type UnrolledPartition = Array[ByteArray]
     val allPartitions: Array[UnrolledPartition] =
@@ -452,13 +469,14 @@ private[spark] object PythonRDD extends Logging {
   /**
    * A helper function to collect an RDD as an iterator, then serve it via socket.
    *
-   * @return the port number of a local socket which serves the data collected from this job.
+   * @return 2-tuple (as a Java array) with the port number of a local socket which serves the
+   *         data collected from this job, and the secret for authentication.
    */
-  def collectAndServe[T](rdd: RDD[T]): Int = {
+  def collectAndServe[T](rdd: RDD[T]): Array[Any] = {
     serveIterator(rdd.collect().iterator, s"serve RDD ${rdd.id}")
   }
 
-  def toLocalIteratorAndServe[T](rdd: RDD[T]): Int = {
+  def toLocalIteratorAndServe[T](rdd: RDD[T]): Array[Any] = {
     serveIterator(rdd.toLocalIterator, s"serve toLocalIterator")
   }
 
@@ -683,28 +701,34 @@ private[spark] object PythonRDD extends Logging {
    * Create a socket server and a background thread to serve the data in `items`,
    *
    * The socket server can only accept one connection, or close if no connection
-   * in 3 seconds.
+   * in 15 seconds.
    *
    * Once a connection comes in, it tries to serialize all the data in `items`
    * and send them into this connection.
    *
    * The thread will terminate after all the data are sent or any exceptions happen.
+   *
+   * @return 2-tuple (as a Java array) with the port number of a local socket which serves the
+   *         data collected from this job, and the secret for authentication.
    */
-  def serveIterator[T](items: Iterator[T], threadName: String): Int = {
+  def serveIterator(items: Iterator[_], threadName: String): Array[Any] = {
     val serverSocket = new ServerSocket(0, 1, InetAddress.getByName("localhost"))
-    // Close the socket if no connection in 3 seconds
-    serverSocket.setSoTimeout(3000)
+    // Close the socket if no connection in 15 seconds
+    serverSocket.setSoTimeout(15000)
 
     new Thread(threadName) {
       setDaemon(true)
       override def run() {
         try {
           val sock = serverSocket.accept()
+          authHelper.authClient(sock)
+
           val out = new DataOutputStream(new BufferedOutputStream(sock.getOutputStream))
           Utils.tryWithSafeFinally {
             writeIteratorToStream(items, out)
           } {
             out.close()
+            sock.close()
           }
         } catch {
           case NonFatal(e) =>
@@ -715,7 +739,7 @@ private[spark] object PythonRDD extends Logging {
       }
     }.start()
 
-    serverSocket.getLocalPort
+    Array(serverSocket.getLocalPort, authHelper.secret)
   }
 
   private def getMergedConf(confAsMap: java.util.HashMap[String, String],

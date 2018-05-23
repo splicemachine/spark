@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.streaming.state
 
 import java.io.{DataInputStream, DataOutputStream, FileNotFoundException, IOException}
+import java.nio.channels.ClosedChannelException
 import java.util.Locale
 
 import scala.collection.JavaConverters._
@@ -202,13 +203,22 @@ private[state] class HDFSBackedStateStoreProvider(
     /** Abort all the updates made on this store. This store will not be usable any more. */
     override def abort(): Unit = {
       verify(state == UPDATING || state == ABORTED, "Cannot abort after already committed")
+      try {
+        state = ABORTED
+        if (tempDeltaFileStream != null) {
+          tempDeltaFileStream.close()
+        }
+        if (tempDeltaFile != null) {
+          fs.delete(tempDeltaFile, true)
+        }
+      } catch {
+        case c: ClosedChannelException =>
+          // This can happen when underlying file output stream has been closed before the
+          // compression stream.
+          logDebug(s"Error aborting version $newVersion into $this", c)
 
-      state = ABORTED
-      if (tempDeltaFileStream != null) {
-        tempDeltaFileStream.close()
-      }
-      if (tempDeltaFile != null) {
-        fs.delete(tempDeltaFile, true)
+        case e: Exception =>
+          logWarning(s"Error aborting version $newVersion into $this", e)
       }
       logInfo(s"Aborted version $newVersion for $this")
     }
@@ -438,9 +448,11 @@ private[state] class HDFSBackedStateStoreProvider(
 
   private def writeSnapshotFile(version: Long, map: MapType): Unit = {
     val fileToWrite = snapshotFile(version)
+    val tempFile =
+      new Path(fileToWrite.getParent, s"${fileToWrite.getName}.temp-${Random.nextLong}")
     var output: DataOutputStream = null
     Utils.tryWithSafeFinally {
-      output = compressStream(fs.create(fileToWrite, false))
+      output = compressStream(fs.create(tempFile, false))
       val iter = map.entrySet().iterator()
       while(iter.hasNext) {
         val entry = iter.next()
@@ -454,6 +466,12 @@ private[state] class HDFSBackedStateStoreProvider(
       output.writeInt(-1)
     } {
       if (output != null) output.close()
+    }
+    if (fs.exists(fileToWrite)) {
+      // Skip rename if the file is alreayd created.
+      fs.delete(tempFile, true)
+    } else if (!fs.rename(tempFile, fileToWrite)) {
+      throw new IOException(s"Failed to rename $tempFile to $fileToWrite")
     }
     logInfo(s"Written snapshot file for version $version of $this at $fileToWrite")
   }

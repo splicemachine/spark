@@ -187,11 +187,10 @@ case class AlterTableRenameCommand(
 */
 case class AlterTableAddColumnsCommand(
     table: TableIdentifier,
-    columns: Seq[StructField]) extends RunnableCommand {
+    colsToAdd: Seq[StructField]) extends RunnableCommand {
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
     val catalogTable = verifyAlterTableAddColumn(catalog, table)
-
     try {
       sparkSession.catalog.uncacheTable(table.quotedString)
     } catch {
@@ -199,12 +198,7 @@ case class AlterTableAddColumnsCommand(
         log.warn(s"Exception when attempting to uncache table ${table.quotedString}", e)
     }
     catalog.refreshTable(table)
-
-    // make sure any partition columns are at the end of the fields
-    val reorderedSchema = catalogTable.dataSchema ++ columns ++ catalogTable.partitionSchema
-    catalog.alterTableSchema(
-      table, catalogTable.schema.copy(fields = reorderedSchema.toArray))
-
+    catalog.alterTableDataSchema(table, StructType(catalogTable.dataSchema ++ colsToAdd))
     Seq.empty[Row]
   }
 
@@ -339,7 +333,7 @@ case class LoadDataCommand(
         uri
       } else {
         val uri = new URI(path)
-        if (uri.getScheme() != null && uri.getAuthority() != null) {
+        val hdfsUri = if (uri.getScheme() != null && uri.getAuthority() != null) {
           uri
         } else {
           // Follow Hive's behavior:
@@ -379,6 +373,13 @@ case class LoadDataCommand(
           }
           new URI(scheme, authority, absolutePath, uri.getQuery(), uri.getFragment())
         }
+        val hadoopConf = sparkSession.sessionState.newHadoopConf()
+        val srcPath = new Path(hdfsUri)
+        val fs = srcPath.getFileSystem(hadoopConf)
+        if (!fs.exists(srcPath)) {
+          throw new AnalysisException(s"LOAD DATA input path does not exist: $path")
+        }
+        hdfsUri
       }
 
     if (partition.nonEmpty) {
@@ -522,15 +523,15 @@ case class DescribeTableCommand(
         throw new AnalysisException(
           s"DESC PARTITION is not allowed on a temporary view: ${table.identifier}")
       }
-      describeSchema(catalog.lookupRelation(table).schema, result)
+      describeSchema(catalog.lookupRelation(table).schema, result, header = false)
     } else {
       val metadata = catalog.getTableMetadata(table)
       if (metadata.schema.isEmpty) {
         // In older version(prior to 2.1) of Spark, the table schema can be empty and should be
         // inferred at runtime. We should still support it.
-        describeSchema(sparkSession.table(metadata.identifier).schema, result)
+        describeSchema(sparkSession.table(metadata.identifier).schema, result, header = false)
       } else {
-        describeSchema(metadata.schema, result)
+        describeSchema(metadata.schema, result, header = false)
       }
 
       describePartitionInfo(metadata, result)
@@ -550,7 +551,7 @@ case class DescribeTableCommand(
   private def describePartitionInfo(table: CatalogTable, buffer: ArrayBuffer[Row]): Unit = {
     if (table.partitionColumnNames.nonEmpty) {
       append(buffer, "# Partition Information", "", "")
-      describeSchema(table.partitionSchema, buffer)
+      describeSchema(table.partitionSchema, buffer, header = true)
     }
   }
 
@@ -601,8 +602,13 @@ case class DescribeTableCommand(
     table.storage.toLinkedHashMap.foreach(s => append(buffer, s._1, s._2, ""))
   }
 
-  private def describeSchema(schema: StructType, buffer: ArrayBuffer[Row]): Unit = {
-    append(buffer, s"# ${output.head.name}", output(1).name, output(2).name)
+  private def describeSchema(
+      schema: StructType,
+      buffer: ArrayBuffer[Row],
+      header: Boolean): Unit = {
+    if (header) {
+      append(buffer, s"# ${output.head.name}", output(1).name, output(2).name)
+    }
     schema.foreach { column =>
       append(buffer, column.name, column.dataType.simpleString, column.getComment().orNull)
     }

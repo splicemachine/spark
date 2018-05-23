@@ -20,7 +20,7 @@ package org.apache.spark.ml.classification
 import scala.util.Random
 
 import breeze.linalg.{DenseVector => BDV, Vector => BV}
-import breeze.stats.distributions.{Multinomial => BrzMultinomial}
+import breeze.stats.distributions.{Multinomial => BrzMultinomial, RandBasis => BrzRandBasis}
 
 import org.apache.spark.{SparkException, SparkFunSuite}
 import org.apache.spark.ml.classification.NaiveBayes.{Bernoulli, Multinomial}
@@ -168,7 +168,7 @@ class NaiveBayesSuite extends SparkFunSuite with MLlibTestSparkContext with Defa
       assert(m1.pi ~== m2.pi relTol 0.01)
       assert(m1.theta ~== m2.theta relTol 0.01)
     }
-    val testParams = Seq(
+    val testParams = Seq[(String, Dataset[_])](
       ("bernoulli", bernoulliDataset),
       ("multinomial", dataset)
     )
@@ -329,6 +329,7 @@ object NaiveBayesSuite {
     val _pi = pi.map(math.exp)
     val _theta = theta.map(row => row.map(math.exp))
 
+    implicit val rngForBrzMultinomial = BrzRandBasis.withSeed(seed)
     for (i <- 0 until nPoints) yield {
       val y = calcLabel(rnd.nextDouble(), _pi)
       val xi = modelType match {

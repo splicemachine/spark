@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.{First, Last}
 import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 import org.apache.spark.util.random.RandomSampler
@@ -44,8 +45,10 @@ import org.apache.spark.util.random.RandomSampler
  * The AstBuilder converts an ANTLR4 ParseTree into a catalyst Expression, LogicalPlan or
  * TableIdentifier.
  */
-class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
+class AstBuilder(conf: SQLConf) extends SqlBaseBaseVisitor[AnyRef] with Logging {
   import ParserUtils._
+
+  def this() = this(new SQLConf())
 
   protected def typedVisit[T](ctx: ParseTree): T = {
     ctx.accept(this).asInstanceOf[T]
@@ -403,7 +406,7 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
         val withWindow = withDistinct.optionalMap(windows)(withWindows)
 
         // Hint
-        withWindow.optionalMap(hint)(withHints)
+        hints.asScala.foldRight(withWindow)(withHints)
     }
   }
 
@@ -529,13 +532,16 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
   }
 
   /**
-   * Add a [[Hint]] to a logical plan.
+   * Add [[UnresolvedHint]]s to a logical plan.
    */
   private def withHints(
       ctx: HintContext,
       query: LogicalPlan): LogicalPlan = withOrigin(ctx) {
-    val stmt = ctx.hintStatement
-    Hint(stmt.hintName.getText, stmt.parameters.asScala.map(_.getText), query)
+    var plan = query
+    ctx.hintStatements.asScala.reverse.foreach { case stmt =>
+      plan = UnresolvedHint(stmt.hintName.getText, stmt.parameters.asScala.map(expression), plan)
+    }
+    plan
   }
 
   /**
@@ -1028,6 +1034,13 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
   }
 
   /**
+   * Create a [[CreateStruct]] expression.
+   */
+  override def visitStruct(ctx: StructContext): Expression = withOrigin(ctx) {
+    CreateStruct(ctx.argument.asScala.map(expression))
+  }
+
+  /**
    * Create a [[First]] expression.
    */
   override def visitFirst(ctx: FirstContext): Expression = withOrigin(ctx) {
@@ -1050,7 +1063,7 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
     // Create the function call.
     val name = ctx.qualifiedName.getText
     val isDistinct = Option(ctx.setQuantifier()).exists(_.DISTINCT != null)
-    val arguments = ctx.namedExpression().asScala.map(expression) match {
+    val arguments = ctx.argument.asScala.map(expression) match {
       case Seq(UnresolvedStar(None))
         if name.toLowerCase(Locale.ROOT) == "count" && !isDistinct =>
         // Transform COUNT(*) into COUNT(1).
@@ -1067,19 +1080,6 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
       case spec: WindowDefContext =>
         WindowExpression(function, visitWindowDef(spec))
       case _ => function
-    }
-  }
-
-  /**
-   * Create a current timestamp/date expression. These are different from regular function because
-   * they do not require the user to specify braces when calling them.
-   */
-  override def visitTimeFunctionCall(ctx: TimeFunctionCallContext): Expression = withOrigin(ctx) {
-    ctx.name.getType match {
-      case SqlBaseParser.CURRENT_DATE =>
-        CurrentDate()
-      case SqlBaseParser.CURRENT_TIMESTAMP =>
-        CurrentTimestamp()
     }
   }
 
@@ -1409,7 +1409,11 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
    * Special characters can be escaped by using Hive/C-style escaping.
    */
   private def createString(ctx: StringLiteralContext): String = {
-    ctx.STRING().asScala.map(string).mkString
+    if (conf.escapedStringLiterals) {
+      ctx.STRING().asScala.map(stringWithoutUnescape).mkString
+    } else {
+      ctx.STRING().asScala.map(string).mkString
+    }
   }
 
   /**
@@ -1491,8 +1495,8 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
       case ("decimal", precision :: scale :: Nil) =>
         DecimalType(precision.getText.toInt, scale.getText.toInt)
       case (dt, params) =>
-        throw new ParseException(
-          s"DataType $dt${params.mkString("(", ",", ")")} is not supported.", ctx)
+        val dtStr = if (params.nonEmpty) s"$dt(${params.mkString(",")})" else dt
+        throw new ParseException(s"DataType $dtStr is not supported.", ctx)
     }
   }
 

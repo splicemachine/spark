@@ -1732,4 +1732,61 @@ class DataFrameSuite extends QueryTest with SharedSQLContext {
       .filter($"x1".isNotNull || !$"y".isin("a!"))
       .count
   }
+
+  // The fix of SPARK-21720 avoid an exception regarding JVM code size limit
+  // TODO: When we make a threshold of splitting statements (1024) configurable,
+  // we will re-enable this with max threshold to cause an exception
+  // See https://github.com/apache/spark/pull/18972/files#r150223463
+  ignore("SPARK-19372: Filter can be executed w/o generated code due to JVM code size limit") {
+    val N = 400
+    val rows = Seq(Row.fromSeq(Seq.fill(N)("string")))
+    val schema = StructType(Seq.tabulate(N)(i => StructField(s"_c$i", StringType)))
+    val df = spark.createDataFrame(spark.sparkContext.makeRDD(rows), schema)
+
+    val filter = (0 until N)
+      .foldLeft(lit(false))((e, index) => e.or(df.col(df.columns(index)) =!= "string"))
+    df.filter(filter).count
+  }
+
+  test("SPARK-20897: cached self-join should not fail") {
+    // force to plan sort merge join
+    withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "0") {
+      val df = Seq(1 -> "a").toDF("i", "j")
+      val df1 = df.as("t1")
+      val df2 = df.as("t2")
+      assert(df1.join(df2, $"t1.i" === $"t2.i").cache().count() == 1)
+    }
+  }
+
+  test("order-by ordinal.") {
+    checkAnswer(
+      testData2.select(lit(7), 'a, 'b).orderBy(lit(1), lit(2), lit(3)),
+      Seq(Row(7, 1, 1), Row(7, 1, 2), Row(7, 2, 1), Row(7, 2, 2), Row(7, 3, 1), Row(7, 3, 2)))
+  }
+
+  test("SPARK-22252: FileFormatWriter should respect the input query schema") {
+    withTable("t1", "t2", "t3", "t4") {
+      spark.range(1).select('id as 'col1, 'id as 'col2).write.saveAsTable("t1")
+      spark.sql("select COL1, COL2 from t1").write.saveAsTable("t2")
+      checkAnswer(spark.table("t2"), Row(0, 0))
+
+      // Test picking part of the columns when writing.
+      spark.range(1).select('id, 'id as 'col1, 'id as 'col2).write.saveAsTable("t3")
+      spark.sql("select COL1, COL2 from t3").write.saveAsTable("t4")
+      checkAnswer(spark.table("t4"), Row(0, 0))
+    }
+  }
+
+  test("SPARK-22271: mean overflows and returns null for some decimal variables") {
+    val d = 0.034567890
+    val df = Seq(d, d, d, d, d, d, d, d, d, d).toDF("DecimalCol")
+    val result = df.select('DecimalCol cast DecimalType(38, 33))
+      .select(col("DecimalCol")).describe()
+    val mean = result.select("DecimalCol").where($"summary" === "mean")
+    assert(mean.collect().toSet === Set(Row("0.0345678900000000000000000000000000000")))
+  }
+
+  test("SPARK-22469: compare string with decimal") {
+    checkAnswer(Seq("1.5").toDF("s").filter("s > 0.5"), Row("1.5"))
+  }
 }

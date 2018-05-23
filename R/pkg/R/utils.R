@@ -899,3 +899,28 @@ basenameSansExtFromUrl <- function(url) {
 isAtomicLengthOne <- function(x) {
   is.atomic(x) && length(x) == 1
 }
+
+is_windows <- function() {
+  .Platform$OS.type == "windows"
+}
+
+hadoop_home_set <- function() {
+  !identical(Sys.getenv("HADOOP_HOME"), "")
+}
+
+windows_with_hadoop <- function() {
+  !is_windows() || hadoop_home_set()
+}
+
+# get0 not supported before R 3.2.0
+getOne <- function(x, envir, inherits = TRUE, ifnotfound = NULL) {
+  mget(x[1L], envir = envir, inherits = inherits, ifnotfound = list(ifnotfound))[[1L]]
+}
+
+# Returns a vector of parent directories, traversing up count times, starting with a full path
+# eg. traverseParentDirs("/Users/user/Library/Caches/spark/spark2.2", 1) should return
+# this "/Users/user/Library/Caches/spark/spark2.2"
+# and  "/Users/user/Library/Caches/spark"
+traverseParentDirs <- function(x, count) {
+  if (dirname(x) == x || count <= 0) x else c(x, Recall(dirname(x), count - 1))
+}

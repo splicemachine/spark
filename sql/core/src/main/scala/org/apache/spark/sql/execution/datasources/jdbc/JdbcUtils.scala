@@ -440,8 +440,9 @@ object JdbcUtils extends Logging {
 
         case StringType =>
           (array: Object) =>
-            array.asInstanceOf[Array[java.lang.String]]
-              .map(UTF8String.fromString)
+            // some underlying types are not String such as uuid, inet, cidr, etc.
+            array.asInstanceOf[Array[java.lang.Object]]
+              .map(obj => if (obj == null) null else UTF8String.fromString(obj.toString))
 
         case DateType =>
           (array: Object) =>
@@ -652,8 +653,17 @@ object JdbcUtils extends Logging {
       case e: SQLException =>
         val cause = e.getNextException
         if (cause != null && e.getCause != cause) {
+          // If there is no cause already, set 'next exception' as cause. If cause is null,
+          // it *may* be because no cause was set yet
           if (e.getCause == null) {
-            e.initCause(cause)
+            try {
+              e.initCause(cause)
+            } catch {
+              // Or it may be null because the cause *was* explicitly initialized, to *null*,
+              // in which case this fails. There is no other way to detect it.
+              // addSuppressed in this case as well.
+              case _: IllegalStateException => e.addSuppressed(cause)
+            }
           } else {
             e.addSuppressed(cause)
           }

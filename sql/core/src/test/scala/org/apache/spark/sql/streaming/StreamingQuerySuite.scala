@@ -425,6 +425,29 @@ class StreamingQuerySuite extends StreamTest with BeforeAndAfter with Logging wi
     }
   }
 
+  test("SPARK-22975: MetricsReporter defaults when there was no progress reported") {
+    withSQLConf("spark.sql.streaming.metricsEnabled" -> "true") {
+      BlockingSource.latch = new CountDownLatch(1)
+      withTempDir { tempDir =>
+        val sq = spark.readStream
+          .format("org.apache.spark.sql.streaming.util.BlockingSource")
+          .load()
+          .writeStream
+          .format("org.apache.spark.sql.streaming.util.BlockingSource")
+          .option("checkpointLocation", tempDir.toString)
+          .start()
+          .asInstanceOf[StreamingQueryWrapper]
+          .streamingQuery
+
+        val gauges = sq.streamMetrics.metricRegistry.getGauges
+        assert(gauges.get("latency").getValue.asInstanceOf[Long] == 0)
+        assert(gauges.get("processingRate-total").getValue.asInstanceOf[Double] == 0.0)
+        assert(gauges.get("inputRate-total").getValue.asInstanceOf[Double] == 0.0)
+        sq.stop()
+      }
+    }
+  }
+
   test("input row calculation with mixed batch and streaming sources") {
     val streamingTriggerDF = spark.createDataset(1 to 10).toDF
     val streamingInputDF = createSingleTriggerStreamingDF(streamingTriggerDF).toDF("value")
@@ -510,22 +533,22 @@ class StreamingQuerySuite extends StreamTest with BeforeAndAfter with Logging wi
         .start()
     }
 
-    val input = MemoryStream[Int]
-    val q1 = startQuery(input.toDS, "stream_serializable_test_1")
-    val q2 = startQuery(input.toDS.map { i =>
+    val input = MemoryStream[Int] :: MemoryStream[Int] :: MemoryStream[Int] :: Nil
+    val q1 = startQuery(input(0).toDS, "stream_serializable_test_1")
+    val q2 = startQuery(input(1).toDS.map { i =>
       // Emulate that `StreamingQuery` get captured with normal usage unintentionally.
       // It should not fail the query.
       q1
       i
     }, "stream_serializable_test_2")
-    val q3 = startQuery(input.toDS.map { i =>
+    val q3 = startQuery(input(2).toDS.map { i =>
       // Emulate that `StreamingQuery` is used in executors. We should fail the query with a clear
       // error message.
       q1.explain()
       i
     }, "stream_serializable_test_3")
     try {
-      input.addData(1)
+      input.foreach(_.addData(1))
 
       // q2 should not fail since it doesn't use `q1` in the closure
       q2.processAllAvailable()
@@ -610,6 +633,18 @@ class StreamingQuerySuite extends StreamTest with BeforeAndAfter with Logging wi
       )
 
       assert(calledStop, "Did not call stop on source for stopped stream")
+    }
+  }
+
+  test("processAllAvailable should not block forever when a query is stopped") {
+    val input = MemoryStream[Int]
+    input.addData(1)
+    val query = input.toDF().writeStream
+      .trigger(Trigger.Once())
+      .format("console")
+      .start()
+    failAfter(streamingTimeout) {
+      query.processAllAvailable()
     }
   }
 

@@ -26,11 +26,13 @@ import scala.language.implicitConversions
 import scala.xml.Node
 
 import org.eclipse.jetty.client.api.Response
+import org.eclipse.jetty.client.HttpClient
+import org.eclipse.jetty.client.http.HttpClientTransportOverHTTP
 import org.eclipse.jetty.proxy.ProxyServlet
 import org.eclipse.jetty.server._
 import org.eclipse.jetty.server.handler._
+import org.eclipse.jetty.server.handler.gzip.GzipHandler
 import org.eclipse.jetty.servlet._
-import org.eclipse.jetty.servlets.gzip.GzipHandler
 import org.eclipse.jetty.util.component.LifeCycle
 import org.eclipse.jetty.util.thread.{QueuedThreadPool, ScheduledExecutorScheduler}
 import org.json4s.JValue
@@ -208,6 +210,16 @@ private[spark] object JettyUtils extends Logging {
         rewrittenURI.toString()
       }
 
+      override def newHttpClient(): HttpClient = {
+        // SPARK-21176: Use the Jetty logic to calculate the number of selector threads (#CPUs/2),
+        // but limit it to 8 max.
+        // Otherwise, it might happen that we exhaust the threadpool since in reverse proxy mode
+        // a proxy is instantiated for each executor. If the head node has many processors, this
+        // can quickly add up to an unreasonably high number of threads.
+        val numSelectors = math.max(1, math.min(8, Runtime.getRuntime().availableProcessors() / 2))
+        new HttpClient(new HttpClientTransportOverHTTP(numSelectors), null)
+      }
+
       override def filterServerResponseHeader(
           clientRequest: HttpServletRequest,
           serverResponse: Response,
@@ -318,12 +330,13 @@ private[spark] object JettyUtils extends Logging {
           -1,
           connectionFactories: _*)
         connector.setPort(port)
-        connector.start()
+        connector.setHost(hostName)
 
         // Currently we only use "SelectChannelConnector"
         // Limit the max acceptor number to 8 so that we don't waste a lot of threads
         connector.setAcceptQueueSize(math.min(connector.getAcceptors, 8))
-        connector.setHost(hostName)
+
+        connector.start()
         // The number of selectors always equals to the number of acceptors
         minThreads += connector.getAcceptors * 2
 

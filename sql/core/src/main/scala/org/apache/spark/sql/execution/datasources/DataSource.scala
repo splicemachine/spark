@@ -23,6 +23,7 @@ import scala.collection.JavaConverters._
 import scala.language.{existentials, implicitConversions}
 import scala.util.{Failure, Success, Try}
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.deploy.SparkHadoopUtil
@@ -39,6 +40,7 @@ import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.types.{CalendarIntervalType, StructType}
+import org.apache.spark.sql.util.SchemaUtils
 import org.apache.spark.util.Utils
 
 /**
@@ -122,7 +124,7 @@ case class DataSource(
         val hdfsPath = new Path(path)
         val fs = hdfsPath.getFileSystem(hadoopConf)
         val qualified = hdfsPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
-        SparkHadoopUtil.get.globPathIfNecessary(qualified)
+        SparkHadoopUtil.get.globPathIfNecessary(fs, qualified)
       }.toArray
       new InMemoryFileIndex(sparkSession, globbedPaths, options, None, fileStatusCache)
     }
@@ -181,6 +183,11 @@ case class DataSource(
       throw new AnalysisException(
         s"Unable to infer schema for $format. It must be specified manually.")
     }
+
+    SchemaUtils.checkColumnNameDuplication(
+      (dataSchema ++ partitionSchema).map(_.name), "in the data schema and the partition schema",
+      sparkSession.sessionState.conf.caseSensitiveAnalysis)
+
     (dataSchema, partitionSchema)
   }
 
@@ -339,22 +346,8 @@ case class DataSource(
       case (format: FileFormat, _) =>
         val allPaths = caseInsensitiveOptions.get("path") ++ paths
         val hadoopConf = sparkSession.sessionState.newHadoopConf()
-        val globbedPaths = allPaths.flatMap { path =>
-          val hdfsPath = new Path(path)
-          val fs = hdfsPath.getFileSystem(hadoopConf)
-          val qualified = hdfsPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
-          val globPath = SparkHadoopUtil.get.globPathIfNecessary(qualified)
-
-          if (globPath.isEmpty) {
-            throw new AnalysisException(s"Path does not exist: $qualified")
-          }
-          // Sufficient to check head of the globPath seq for non-glob scenario
-          // Don't need to check once again if files exist in streaming mode
-          if (checkFilesExist && !fs.exists(globPath.head)) {
-            throw new AnalysisException(s"Path does not exist: ${globPath.head}")
-          }
-          globPath
-        }.toArray
+        val globbedPaths = allPaths.flatMap(
+          DataSource.checkAndGlobPathIfNecessary(hadoopConf, _, checkFilesExist)).toArray
 
         val fileStatusCache = FileStatusCache.getOrCreate(sparkSession)
         val (dataSchema, partitionSchema) = getOrInferFileFormatSchema(format, fileStatusCache)
@@ -430,6 +423,7 @@ case class DataSource(
       InsertIntoHadoopFsRelationCommand(
         outputPath = outputPath,
         staticPartitions = Map.empty,
+        ifPartitionNotExists = false,
         partitionColumns = partitionAttributes,
         bucketSpec = bucketSpec,
         fileFormat = format,
@@ -481,7 +475,7 @@ case class DataSource(
   }
 }
 
-object DataSource {
+object DataSource extends Logging {
 
   /** A map to maintain backward compatibility in case we move data sources around. */
   private val backwardCompatibilityMap: Map[String, String] = {
@@ -570,10 +564,19 @@ object DataSource {
           // there is exactly one registered alias
           head.getClass
         case sources =>
-          // There are multiple registered aliases for the input
-          sys.error(s"Multiple sources found for $provider1 " +
-            s"(${sources.map(_.getClass.getName).mkString(", ")}), " +
-            "please specify the fully qualified class name.")
+          // There are multiple registered aliases for the input. If there is single datasource
+          // that has "org.apache.spark" package in the prefix, we use it considering it is an
+          // internal datasource within Spark.
+          val sourceNames = sources.map(_.getClass.getName)
+          val internalSources = sources.filter(_.getClass.getName.startsWith("org.apache.spark"))
+          if (internalSources.size == 1) {
+            logWarning(s"Multiple sources found for $provider1 (${sourceNames.mkString(", ")}), " +
+              s"defaulting to the internal datasource (${internalSources.head.getClass.getName}).")
+            internalSources.head.getClass
+          } else {
+            throw new AnalysisException(s"Multiple sources found for $provider1 " +
+              s"(${sourceNames.mkString(", ")}), please specify the fully qualified class name.")
+          }
       }
     } catch {
       case e: ServiceConfigurationError if e.getCause.isInstanceOf[NoClassDefFoundError] =>
@@ -599,5 +602,29 @@ object DataSource {
     val optionsWithoutPath = options.filterKeys(_.toLowerCase(Locale.ROOT) != "path")
     CatalogStorageFormat.empty.copy(
       locationUri = path.map(CatalogUtils.stringToURI), properties = optionsWithoutPath)
+  }
+
+  /**
+   * If `path` is a file pattern, return all the files that match it. Otherwise, return itself.
+   * If `checkFilesExist` is `true`, also check the file existence.
+   */
+  private def checkAndGlobPathIfNecessary(
+      hadoopConf: Configuration,
+      path: String,
+      checkFilesExist: Boolean): Seq[Path] = {
+    val hdfsPath = new Path(path)
+    val fs = hdfsPath.getFileSystem(hadoopConf)
+    val qualified = hdfsPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
+    val globPath = SparkHadoopUtil.get.globPathIfNecessary(fs, qualified)
+
+    if (globPath.isEmpty) {
+      throw new AnalysisException(s"Path does not exist: $qualified")
+    }
+    // Sufficient to check head of the globPath seq for non-glob scenario
+    // Don't need to check once again if files exist in streaming mode
+    if (checkFilesExist && !fs.exists(globPath.head)) {
+      throw new AnalysisException(s"Path does not exist: ${globPath.head}")
+    }
+    globPath
   }
 }

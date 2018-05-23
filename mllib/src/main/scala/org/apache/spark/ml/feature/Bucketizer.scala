@@ -106,7 +106,7 @@ final class Bucketizer @Since("1.4.0") (@Since("1.4.0") override val uid: String
     val (filteredDataset, keepInvalid) = {
       if (getHandleInvalid == Bucketizer.SKIP_INVALID) {
         // "skip" NaN option is set, will filter out NaN values in the dataset
-        (dataset.na.drop().toDF(), false)
+        (dataset.na.drop(Seq($(inputCol))).toDF(), false)
       } else {
         (dataset.toDF(), getHandleInvalid == Bucketizer.KEEP_INVALID)
       }
@@ -116,7 +116,7 @@ final class Bucketizer @Since("1.4.0") (@Since("1.4.0") override val uid: String
       Bucketizer.binarySearchForBuckets($(splits), feature, keepInvalid)
     }
 
-    val newCol = bucketizer(filteredDataset($(inputCol)))
+    val newCol = bucketizer(filteredDataset($(inputCol)).cast(DoubleType))
     val newField = prepOutputField(filteredDataset.schema)
     filteredDataset.withColumn($(outputCol), newCol, newField.metadata)
   }
@@ -130,7 +130,7 @@ final class Bucketizer @Since("1.4.0") (@Since("1.4.0") override val uid: String
 
   @Since("1.4.0")
   override def transformSchema(schema: StructType): StructType = {
-    SchemaUtils.checkColumnType(schema, $(inputCol), DoubleType)
+    SchemaUtils.checkNumericType(schema, $(inputCol))
     SchemaUtils.appendColumn(schema, prepOutputField(schema))
   }
 

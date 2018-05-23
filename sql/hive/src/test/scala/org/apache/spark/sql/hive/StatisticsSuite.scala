@@ -23,13 +23,14 @@ import scala.reflect.ClassTag
 
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.catalog.{CatalogRelation, CatalogStatistics}
+import org.apache.spark.sql.catalyst.catalog.{CatalogStatistics, HiveTableRelation}
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.hive.test.TestHiveSingleton
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+
 
 class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleton {
 
@@ -59,7 +60,7 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
                |LOCATION '${tempDir.toURI}'""".stripMargin)
 
           val relation = spark.table("csv_table").queryExecution.analyzed.children.head
-            .asInstanceOf[CatalogRelation]
+            .asInstanceOf[HiveTableRelation]
 
           val properties = relation.tableMeta.properties
           assert(properties("totalSize").toLong <= 0, "external table totalSize must be <= 0")
@@ -125,6 +126,77 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
       TableIdentifier("tempTable"), ignoreIfNotExists = true, purge = false)
   }
 
+  test("SPARK-21079 - analyze table with location different than that of individual partitions") {
+    def queryTotalSize(tableName: String): BigInt =
+      spark.table(tableName).queryExecution.analyzed.stats(conf).sizeInBytes
+
+    val tableName = "analyzeTable_part"
+    withTable(tableName) {
+      withTempPath { path =>
+        sql(s"CREATE TABLE $tableName (key STRING, value STRING) PARTITIONED BY (ds STRING)")
+
+        val partitionDates = List("2010-01-01", "2010-01-02", "2010-01-03")
+        partitionDates.foreach { ds =>
+          sql(s"INSERT INTO TABLE $tableName PARTITION (ds='$ds') SELECT * FROM src")
+        }
+
+        sql(s"ALTER TABLE $tableName SET LOCATION '$path'")
+
+        sql(s"ANALYZE TABLE $tableName COMPUTE STATISTICS noscan")
+
+        assert(queryTotalSize(tableName) === BigInt(17436))
+      }
+    }
+  }
+
+  test("SPARK-21079 - analyze partitioned table with only a subset of partitions visible") {
+    def queryTotalSize(tableName: String): BigInt =
+      spark.table(tableName).queryExecution.analyzed.stats(conf).sizeInBytes
+
+    val sourceTableName = "analyzeTable_part"
+    val tableName = "analyzeTable_part_vis"
+    withTable(sourceTableName, tableName) {
+      withTempPath { path =>
+          // Create a table with 3 partitions all located under a single top-level directory 'path'
+          sql(
+            s"""
+               |CREATE TABLE $sourceTableName (key STRING, value STRING)
+               |PARTITIONED BY (ds STRING)
+               |LOCATION '$path'
+             """.stripMargin)
+
+          val partitionDates = List("2010-01-01", "2010-01-02", "2010-01-03")
+          partitionDates.foreach { ds =>
+              sql(
+                s"""
+                   |INSERT INTO TABLE $sourceTableName PARTITION (ds='$ds')
+                   |SELECT * FROM src
+                 """.stripMargin)
+          }
+
+          // Create another table referring to the same location
+          sql(
+            s"""
+               |CREATE TABLE $tableName (key STRING, value STRING)
+               |PARTITIONED BY (ds STRING)
+               |LOCATION '$path'
+             """.stripMargin)
+
+          // Register only one of the partitions found on disk
+          val ds = partitionDates.head
+          sql(s"ALTER TABLE $tableName ADD PARTITION (ds='$ds')").collect()
+
+          // Analyze original table - expect 3 partitions
+          sql(s"ANALYZE TABLE $sourceTableName COMPUTE STATISTICS noscan")
+          assert(queryTotalSize(sourceTableName) === BigInt(3 * 5812))
+
+          // Analyze partial-copy table - expect only 1 partition
+          sql(s"ANALYZE TABLE $tableName COMPUTE STATISTICS noscan")
+          assert(queryTotalSize(tableName) === BigInt(5812))
+        }
+    }
+  }
+
   test("analyzing views is not supported") {
     def assertAnalyzeUnsupported(analyzeCommand: String): Unit = {
       val err = intercept[AnalysisException] {
@@ -143,23 +215,6 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
         assertAnalyzeUnsupported(s"ANALYZE TABLE $viewName COMPUTE STATISTICS FOR COLUMNS id")
       }
     }
-  }
-
-  private def checkTableStats(
-      tableName: String,
-      hasSizeInBytes: Boolean,
-      expectedRowCounts: Option[Int]): Option[CatalogStatistics] = {
-    val stats = spark.sessionState.catalog.getTableMetadata(TableIdentifier(tableName)).stats
-
-    if (hasSizeInBytes || expectedRowCounts.nonEmpty) {
-      assert(stats.isDefined)
-      assert(stats.get.sizeInBytes > 0)
-      assert(stats.get.rowCount === expectedRowCounts)
-    } else {
-      assert(stats.isEmpty)
-    }
-
-    stats
   }
 
   test("test table-level statistics for hive tables created in HiveExternalCatalog") {
@@ -442,7 +497,7 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
   test("estimates the size of a test Hive serde tables") {
     val df = sql("""SELECT * FROM src""")
     val sizes = df.queryExecution.analyzed.collect {
-      case relation: CatalogRelation => relation.stats(conf).sizeInBytes
+      case relation: HiveTableRelation => relation.stats(conf).sizeInBytes
     }
     assert(sizes.size === 1, s"Size wrong for:\n ${df.queryExecution}")
     assert(sizes(0).equals(BigInt(5812)),
@@ -502,7 +557,7 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
       () => (),
       metastoreQuery,
       metastoreAnswer,
-      implicitly[ClassTag[CatalogRelation]]
+      implicitly[ClassTag[HiveTableRelation]]
     )
   }
 
@@ -516,7 +571,7 @@ class StatisticsSuite extends StatisticsCollectionTestBase with TestHiveSingleto
 
     // Assert src has a size smaller than the threshold.
     val sizes = df.queryExecution.analyzed.collect {
-      case relation: CatalogRelation => relation.stats(conf).sizeInBytes
+      case relation: HiveTableRelation => relation.stats(conf).sizeInBytes
     }
     assert(sizes.size === 2 && sizes(1) <= spark.sessionState.conf.autoBroadcastJoinThreshold
       && sizes(0) <= spark.sessionState.conf.autoBroadcastJoinThreshold,

@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hive.client
 
-import java.io.{ByteArrayOutputStream, File, PrintStream}
+import java.io.{ByteArrayOutputStream, File, PrintStream, PrintWriter}
 import java.net.URI
 
 import org.apache.hadoop.conf.Configuration
@@ -162,6 +162,15 @@ class VersionsSuite extends SparkFunSuite with Logging {
       val tempDB = CatalogDatabase(
         "temporary", description = "test create", tempDatabasePath, Map())
       client.createDatabase(tempDB, ignoreIfExists = true)
+    }
+
+    test(s"$version: createDatabase with null description") {
+      withTempDir { tmpDir =>
+        val dbWithNullDesc =
+          CatalogDatabase("dbWithNullDesc", description = null, tmpDir.toURI, Map())
+        client.createDatabase(dbWithNullDesc, ignoreIfExists = true)
+        assert(client.getDatabase("dbWithNullDesc").description == "")
+      }
     }
 
     test(s"$version: setCurrentDatabase") {
@@ -697,6 +706,52 @@ class VersionsSuite extends SparkFunSuite with Logging {
         assert(versionSpark.table("t1").collect() === Array(Row(2)))
       }
     }
+
+    test(s"$version: SPARK-17920: Insert into/overwrite avro table") {
+      withTempDir { dir =>
+        val destTableName = "tab1"
+        val avroSchema =
+          """{
+            |"type": "record",
+            | "name": "test_Record",
+            | "namespace": "ns.avro",
+            | "fields" : [
+            |    {"name": "f1", "type": "string"},
+            |    {"name": "f2", "type": ["null", "string"]}
+            |   ]
+            |}
+          """.stripMargin
+
+        withTable(destTableName) {
+          val schemaFile = new File(dir, "avroSchema.avsc")
+          val writer = new PrintWriter(schemaFile)
+          writer.write(avroSchema)
+          writer.close()
+          val schemaPath = schemaFile.getCanonicalPath
+
+          versionSpark.sql(
+            s"""CREATE TABLE $destTableName
+               |ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+               |STORED AS
+               |  INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+               |  OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+               |TBLPROPERTIES ('avro.schema.url' = '$schemaPath')
+           """.stripMargin
+          )
+          val insertStmt = s"INSERT OVERWRITE TABLE $destTableName SELECT 'ABC', 'DEF'"
+          if (version == "0.12") {
+            // Hive 0.12 throws AnalysisException
+            intercept[AnalysisException](versionSpark.sql(insertStmt))
+            } else {
+            val result = versionSpark.sql("SELECT 'ABC', 'DEF'").collect()
+            versionSpark.sql(insertStmt)
+            assert(versionSpark.table(destTableName).collect() === result)
+            versionSpark.sql(s"INSERT INTO TABLE $destTableName SELECT 'ABC', 'DEF'")
+            assert(versionSpark.table(destTableName).collect() === result ++ result)
+            }
+          }
+        }
+      }
     // TODO: add more tests.
   }
 }

@@ -113,8 +113,6 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
       SimplifyCreateArrayOps,
       SimplifyCreateMapOps) ++
       extendedOperatorOptimizationRules: _*) ::
-    Batch("Check Cartesian Products", Once,
-      CheckCartesianProducts(conf)) ::
     Batch("Join Reorder", Once,
       CostBasedJoinReorder(conf)) ::
     Batch("Decimal Optimizations", fixedPoint,
@@ -125,6 +123,8 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
     Batch("LocalRelation", fixedPoint,
       ConvertToLocalRelation,
       PropagateEmptyRelation) ::
+    Batch("Check Cartesian Products", Once,
+      CheckCartesianProducts(conf)) ::
     Batch("OptimizeCodegen", Once,
       OptimizeCodegen(conf)) ::
     Batch("RewriteSubquery", Once,
@@ -299,12 +299,11 @@ case class LimitPushDown(conf: SQLConf) extends Rule[LogicalPlan] {
     // pushdown Limit.
     case LocalLimit(exp, Union(children)) =>
       LocalLimit(exp, Union(children.map(maybePushLimit(exp, _))))
-    // Add extra limits below OUTER JOIN. For LEFT OUTER and FULL OUTER JOIN we push limits to the
-    // left and right sides, respectively. For FULL OUTER JOIN, we can only push limits to one side
-    // because we need to ensure that rows from the limited side still have an opportunity to match
-    // against all candidates from the non-limited side. We also need to ensure that this limit
-    // pushdown rule will not eventually introduce limits on both sides if it is applied multiple
-    // times. Therefore:
+    // Add extra limits below OUTER JOIN. For LEFT OUTER and RIGHT OUTER JOIN we push limits to
+    // the left and right sides, respectively. It's not safe to push limits below FULL OUTER
+    // JOIN in the general case without a more invasive rewrite.
+    // We also need to ensure that this limit pushdown rule will not eventually introduce limits
+    // on both sides if it is applied multiple times. Therefore:
     //   - If one side is already limited, stack another limit on top if the new limit is smaller.
     //     The redundant limit will be collapsed by the CombineLimits rule.
     //   - If neither side is limited, limit the side that is estimated to be bigger.
@@ -312,19 +311,6 @@ case class LimitPushDown(conf: SQLConf) extends Rule[LogicalPlan] {
       val newJoin = joinType match {
         case RightOuter => join.copy(right = maybePushLimit(exp, right))
         case LeftOuter => join.copy(left = maybePushLimit(exp, left))
-        case FullOuter =>
-          (left.maxRows, right.maxRows) match {
-            case (None, None) =>
-              if (left.stats(conf).sizeInBytes >= right.stats(conf).sizeInBytes) {
-                join.copy(left = maybePushLimit(exp, left))
-              } else {
-                join.copy(right = maybePushLimit(exp, right))
-              }
-            case (Some(_), Some(_)) => join
-            case (Some(_), None) => join.copy(left = maybePushLimit(exp, left))
-            case (None, Some(_)) => join.copy(right = maybePushLimit(exp, right))
-
-          }
         case _ => join
       }
       LocalLimit(exp, newJoin)
@@ -441,8 +427,7 @@ object ColumnPruning extends Rule[LogicalPlan] {
       g.copy(child = prunedChild(g.child, g.references))
 
     // Turn off `join` for Generate if no column from it's child is used
-    case p @ Project(_, g: Generate)
-        if g.join && !g.outer && p.references.subsetOf(g.generatedSet) =>
+    case p @ Project(_, g: Generate) if g.join && p.references.subsetOf(g.generatedSet) =>
       p.copy(child = g.copy(join = false))
 
     // Eliminate unneeded attributes from right side of a Left Existence Join.
@@ -769,7 +754,8 @@ object PushDownPredicate extends Rule[LogicalPlan] with PredicateHelper {
       project.copy(child = Filter(replaceAlias(condition, aliasMap), grandChild))
 
     case filter @ Filter(condition, aggregate: Aggregate)
-      if aggregate.aggregateExpressions.forall(_.deterministic) =>
+      if aggregate.aggregateExpressions.forall(_.deterministic)
+        && aggregate.groupingExpressions.nonEmpty =>
       // Find all the aliased expressions in the aggregate list that don't include any actual
       // AggregateExpression, and create a map from the alias to the expression
       val aliasMap = AttributeMap(aggregate.aggregateExpressions.collect {
@@ -862,7 +848,7 @@ object PushDownPredicate extends Rule[LogicalPlan] with PredicateHelper {
     // Note that some operators (e.g. project, aggregate, union) are being handled separately
     // (earlier in this rule).
     case _: AppendColumns => true
-    case _: BroadcastHint => true
+    case _: ResolvedHint => true
     case _: Distinct => true
     case _: Generate => true
     case _: Pivot => true

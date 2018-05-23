@@ -94,6 +94,8 @@ case class ObjectHashAggregateExec(
     }
   }
 
+  override def outputPartitioning: Partitioning = child.outputPartitioning
+
   protected override def doExecute(): RDD[InternalRow] = attachTree(this, "execute") {
     val numOutputRows = longMetric("numOutputRows")
     val fallbackCountThreshold = sqlContext.conf.objectAggSortBasedFallbackThreshold
@@ -117,7 +119,8 @@ case class ObjectHashAggregateExec(
               newMutableProjection(expressions, inputSchema, subexpressionEliminationEnabled),
             child.output,
             iter,
-            fallbackCountThreshold)
+            fallbackCountThreshold,
+            numOutputRows)
         if (!hasInput && groupingExpressions.isEmpty) {
           numOutputRows += 1
           Iterator.single[UnsafeRow](aggregationIterator.outputForEmptyGroupingKeyWithoutInput())

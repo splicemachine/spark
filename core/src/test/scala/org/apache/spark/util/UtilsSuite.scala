@@ -38,7 +38,7 @@ import org.apache.commons.math3.stat.inference.ChiSquareTest
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.{SparkConf, SparkFunSuite}
+import org.apache.spark.{SparkConf, SparkFunSuite, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
 
@@ -1010,15 +1010,105 @@ class UtilsSuite extends SparkFunSuite with ResetSystemProperties with Logging {
       "spark.executorEnv.HADOOP_CREDSTORE_PASSWORD",
       "spark.my.password",
       "spark.my.sECreT")
-    secretKeys.foreach { key => sparkConf.set(key, "secret_password") }
+    secretKeys.foreach { key => sparkConf.set(key, "sensitive_value") }
     // Set a non-secret key
-    sparkConf.set("spark.regular.property", "not_a_secret")
+    sparkConf.set("spark.regular.property", "regular_value")
+    // Set a property with a regular key but secret in the value
+    sparkConf.set("spark.sensitive.property", "has_secret_in_value")
 
     // Redact sensitive information
     val redactedConf = Utils.redact(sparkConf, sparkConf.getAll).toMap
 
     // Assert that secret information got redacted while the regular property remained the same
     secretKeys.foreach { key => assert(redactedConf(key) === Utils.REDACTION_REPLACEMENT_TEXT) }
-    assert(redactedConf("spark.regular.property") === "not_a_secret")
+    assert(redactedConf("spark.regular.property") === "regular_value")
+    assert(redactedConf("spark.sensitive.property") === Utils.REDACTION_REPLACEMENT_TEXT)
+
+  }
+
+  test("tryWithSafeFinally") {
+    var e = new Error("Block0")
+    val finallyBlockError = new Error("Finally Block")
+    var isErrorOccurred = false
+    // if the try and finally blocks throw different exception instances
+    try {
+      Utils.tryWithSafeFinally { throw e }(finallyBlock = { throw finallyBlockError })
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.head == finallyBlockError)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try and finally blocks throw the same exception instance then it should not
+    // try to add to suppressed and get IllegalArgumentException
+    e = new Error("Block1")
+    isErrorOccurred = false
+    try {
+      Utils.tryWithSafeFinally { throw e }(finallyBlock = { throw e })
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.length == 0)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try throws the exception and finally doesn't throw exception
+    e = new Error("Block2")
+    isErrorOccurred = false
+    try {
+      Utils.tryWithSafeFinally { throw e }(finallyBlock = {})
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.length == 0)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try and finally block don't throw exception
+    Utils.tryWithSafeFinally {}(finallyBlock = {})
+  }
+
+  test("tryWithSafeFinallyAndFailureCallbacks") {
+    var e = new Error("Block0")
+    val catchBlockError = new Error("Catch Block")
+    val finallyBlockError = new Error("Finally Block")
+    var isErrorOccurred = false
+    TaskContext.setTaskContext(TaskContext.empty())
+    // if the try, catch and finally blocks throw different exception instances
+    try {
+      Utils.tryWithSafeFinallyAndFailureCallbacks { throw e }(
+        catchBlock = { throw catchBlockError }, finallyBlock = { throw finallyBlockError })
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.head == catchBlockError)
+        assert(t.getSuppressed.last == finallyBlockError)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try, catch and finally blocks throw the same exception instance then it should not
+    // try to add to suppressed and get IllegalArgumentException
+    e = new Error("Block1")
+    isErrorOccurred = false
+    try {
+      Utils.tryWithSafeFinallyAndFailureCallbacks { throw e }(catchBlock = { throw e },
+        finallyBlock = { throw e })
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.length == 0)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try throws the exception, catch and finally don't throw exceptions
+    e = new Error("Block2")
+    isErrorOccurred = false
+    try {
+      Utils.tryWithSafeFinallyAndFailureCallbacks { throw e }(catchBlock = {}, finallyBlock = {})
+    } catch {
+      case t: Error =>
+        assert(t.getSuppressed.length == 0)
+        isErrorOccurred = true
+    }
+    assert(isErrorOccurred)
+    // if the try, catch and finally blocks don't throw exceptions
+    Utils.tryWithSafeFinallyAndFailureCallbacks {}(catchBlock = {}, finallyBlock = {})
+    TaskContext.unset
   }
 }

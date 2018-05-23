@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.language.existentials
 
@@ -25,6 +26,7 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.TestUtils.{assertNotSpilled, assertSpilled}
 
 class JoinSuite extends QueryTest with SharedSQLContext {
@@ -196,6 +198,14 @@ class JoinSuite extends QueryTest with SharedSQLContext {
     checkAnswer(
       x.join(y).where($"x.a" === $"y.a"),
       Nil)
+  }
+
+  test("SPARK-22141: Propagate empty relation before checking Cartesian products") {
+    Seq("inner", "left", "right", "left_outer", "right_outer", "full_outer").foreach { joinType =>
+      val x = testData2.where($"a" === 2 && !($"a" === 2)).as("x")
+      val y = testData2.where($"a" === 1 && !($"a" === 1)).as("y")
+      checkAnswer(x.join(y, Seq.empty, joinType), Nil)
+    }
   }
 
   test("big inner join, 4 matches per row") {
@@ -665,7 +675,8 @@ class JoinSuite extends QueryTest with SharedSQLContext {
 
   test("test SortMergeJoin (with spill)") {
     withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "1",
-      "spark.sql.sortMergeJoinExec.buffer.spill.threshold" -> "0") {
+      "spark.sql.sortMergeJoinExec.buffer.in.memory.threshold" -> "0",
+      "spark.sql.sortMergeJoinExec.buffer.spill.threshold" -> "1") {
 
       assertSpilled(sparkContext, "inner join") {
         checkAnswer(
@@ -734,6 +745,24 @@ class JoinSuite extends QueryTest with SharedSQLContext {
               |  big.key = small.a
             """.stripMargin),
           expected
+        )
+      }
+    }
+  }
+
+  test("outer broadcast hash join should not throw NPE") {
+    withTempView("v1", "v2") {
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
+        Seq(2 -> 2).toDF("x", "y").createTempView("v1")
+
+        spark.createDataFrame(
+          Seq(Row(1, "a")).asJava,
+          new StructType().add("i", "int", nullable = false).add("j", "string", nullable = false)
+        ).createTempView("v2")
+
+        checkAnswer(
+          sql("select x, y, i, j from v1 left join v2 on x = i and y < length(j)"),
+          Row(2, 2, null, null)
         )
       }
     }

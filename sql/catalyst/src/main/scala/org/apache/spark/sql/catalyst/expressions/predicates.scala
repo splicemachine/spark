@@ -17,23 +17,26 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import scala.collection.immutable.TreeSet
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode, GenerateSafeProjection, GenerateUnsafeProjection, Predicate => BasePredicate}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types._
 
 
 object InterpretedPredicate {
-  def create(expression: Expression, inputSchema: Seq[Attribute]): (InternalRow => Boolean) =
+  def create(expression: Expression, inputSchema: Seq[Attribute]): InterpretedPredicate =
     create(BindReferences.bindReference(expression, inputSchema))
 
-  def create(expression: Expression): (InternalRow => Boolean) = {
-    (r: InternalRow) => expression.eval(r).asInstanceOf[Boolean]
-  }
+  def create(expression: Expression): InterpretedPredicate = new InterpretedPredicate(expression)
 }
 
+case class InterpretedPredicate(expression: Expression) extends BasePredicate {
+  override def eval(r: InternalRow): Boolean = expression.eval(r).asInstanceOf[Boolean]
+}
 
 /**
  * An [[Expression]] that returns a boolean value.
@@ -162,19 +165,22 @@ case class In(value: Expression, list: Seq[Expression]) extends Predicate {
                |[${sub.output.map(_.dataType.catalogString).mkString(", ")}].
              """.stripMargin)
         } else {
-          TypeCheckResult.TypeCheckSuccess
+          TypeUtils.checkForOrderingExpr(value.dataType, s"function $prettyName")
         }
       case _ =>
-        if (list.exists(l => l.dataType != value.dataType)) {
-          TypeCheckResult.TypeCheckFailure("Arguments must be same type")
+        val mismatchOpt = list.find(l => l.dataType != value.dataType)
+        if (mismatchOpt.isDefined) {
+          TypeCheckResult.TypeCheckFailure(s"Arguments must be same type but were: " +
+            s"${value.dataType} != ${mismatchOpt.get.dataType}")
         } else {
-          TypeCheckResult.TypeCheckSuccess
+          TypeUtils.checkForOrderingExpr(value.dataType, s"function $prettyName")
         }
     }
   }
 
   override def children: Seq[Expression] = value +: list
   lazy val inSetConvertible = list.forall(_.isInstanceOf[Literal])
+  private lazy val ordering = TypeUtils.getInterpretedOrdering(value.dataType)
 
   override def nullable: Boolean = children.exists(_.nullable)
   override def foldable: Boolean = children.forall(_.foldable)
@@ -189,10 +195,10 @@ case class In(value: Expression, list: Seq[Expression]) extends Predicate {
       var hasNull = false
       list.foreach { e =>
         val v = e.eval(input)
-        if (v == evaluatedValue) {
-          return true
-        } else if (v == null) {
+        if (v == null) {
           hasNull = true
+        } else if (ordering.equiv(v, evaluatedValue)) {
+          return true
         }
       }
       if (hasNull) {
@@ -206,24 +212,34 @@ case class In(value: Expression, list: Seq[Expression]) extends Predicate {
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     val valueGen = value.genCode(ctx)
     val listGen = list.map(_.genCode(ctx))
+    ctx.addMutableState("boolean", ev.value, "")
+    ctx.addMutableState("boolean", ev.isNull, "")
+    val valueArg = ctx.freshName("valueArg")
     val listCode = listGen.map(x =>
       s"""
         if (!${ev.value}) {
           ${x.code}
           if (${x.isNull}) {
             ${ev.isNull} = true;
-          } else if (${ctx.genEqual(value.dataType, valueGen.value, x.value)}) {
+          } else if (${ctx.genEqual(value.dataType, valueArg, x.value)}) {
             ${ev.isNull} = false;
             ${ev.value} = true;
           }
         }
-       """).mkString("\n")
+       """)
+    val listCodes = if (ctx.INPUT_ROW != null && ctx.currentVars == null) {
+      val args = ("InternalRow", ctx.INPUT_ROW) :: (ctx.javaType(value.dataType), valueArg) :: Nil
+      ctx.splitExpressions(listCode, "valueIn", args)
+    } else {
+      listCode.mkString("\n")
+    }
     ev.copy(code = s"""
       ${valueGen.code}
-      boolean ${ev.value} = false;
-      boolean ${ev.isNull} = ${valueGen.isNull};
+      ${ev.value} = false;
+      ${ev.isNull} = ${valueGen.isNull};
       if (!${ev.isNull}) {
-        $listCode
+        ${ctx.javaType(value.dataType)} $valueArg = ${valueGen.value};
+        $listCodes
       }
     """)
   }
@@ -251,7 +267,7 @@ case class InSet(child: Expression, hset: Set[Any]) extends UnaryExpression with
   override def nullable: Boolean = child.nullable || hasNull
 
   protected override def nullSafeEval(value: Any): Any = {
-    if (hset.contains(value)) {
+    if (set.contains(value)) {
       true
     } else if (hasNull) {
       null
@@ -260,27 +276,40 @@ case class InSet(child: Expression, hset: Set[Any]) extends UnaryExpression with
     }
   }
 
-  def getHSet(): Set[Any] = hset
+  @transient private[this] lazy val set = child.dataType match {
+    case _: AtomicType => hset
+    case _: NullType => hset
+    case _ =>
+      // for structs use interpreted ordering to be able to compare UnsafeRows with non-UnsafeRows
+      TreeSet.empty(TypeUtils.getInterpretedOrdering(child.dataType)) ++ hset
+  }
+
+  def getSet(): Set[Any] = set
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     val setName = classOf[Set[Any]].getName
     val InSetName = classOf[InSet].getName
     val childGen = child.genCode(ctx)
     ctx.references += this
-    val hsetTerm = ctx.freshName("hset")
-    val hasNullTerm = ctx.freshName("hasNull")
-    ctx.addMutableState(setName, hsetTerm,
-      s"$hsetTerm = (($InSetName)references[${ctx.references.size - 1}]).getHSet();")
-    ctx.addMutableState("boolean", hasNullTerm, s"$hasNullTerm = $hsetTerm.contains(null);")
+    val setTerm = ctx.freshName("set")
+    val setNull = if (hasNull) {
+      s"""
+         |if (!${ev.value}) {
+         |  ${ev.isNull} = true;
+         |}
+       """.stripMargin
+    } else {
+      ""
+    }
+    ctx.addMutableState(setName, setTerm,
+      s"$setTerm = (($InSetName)references[${ctx.references.size - 1}]).getSet();")
     ev.copy(code = s"""
       ${childGen.code}
       boolean ${ev.isNull} = ${childGen.isNull};
       boolean ${ev.value} = false;
       if (!${ev.isNull}) {
-        ${ev.value} = $hsetTerm.contains(${childGen.value});
-        if (!${ev.value} && $hasNullTerm) {
-          ${ev.isNull} = true;
-        }
+        ${ev.value} = $setTerm.contains(${childGen.value});
+        $setNull
       }
      """)
   }
@@ -325,7 +354,46 @@ case class And(left: Expression, right: Expression) extends BinaryOperator with 
     val eval2 = right.genCode(ctx)
 
     // The result should be `false`, if any of them is `false` whenever the other is null or not.
-    if (!left.nullable && !right.nullable) {
+
+    // place generated code of eval1 and eval2 in separate methods if their code combined is large
+    val combinedLength = eval1.code.length + eval2.code.length
+    if (combinedLength > 1024 &&
+      // Split these expressions only if they are created from a row object
+      (ctx.INPUT_ROW != null && ctx.currentVars == null)) {
+
+      val (eval1FuncName, eval1GlobalIsNull, eval1GlobalValue) =
+        ctx.createAndAddFunction(eval1, BooleanType, "eval1Expr")
+      val (eval2FuncName, eval2GlobalIsNull, eval2GlobalValue) =
+        ctx.createAndAddFunction(eval2, BooleanType, "eval2Expr")
+      if (!left.nullable && !right.nullable) {
+        val generatedCode = s"""
+         $eval1FuncName(${ctx.INPUT_ROW});
+         boolean ${ev.value} = false;
+         if (${eval1GlobalValue}) {
+           $eval2FuncName(${ctx.INPUT_ROW});
+           ${ev.value} = ${eval2GlobalValue};
+         }
+       """
+        ev.copy(code = generatedCode, isNull = "false")
+      } else {
+        val generatedCode = s"""
+         $eval1FuncName(${ctx.INPUT_ROW});
+         boolean ${ev.isNull} = false;
+         boolean ${ev.value} = false;
+         if (!${eval1GlobalIsNull} && !${eval1GlobalValue}) {
+         } else {
+           $eval2FuncName(${ctx.INPUT_ROW});
+           if (!${eval2GlobalIsNull} && !${eval2GlobalValue}) {
+           } else if (!${eval1GlobalIsNull} && !${eval2GlobalIsNull}) {
+             ${ev.value} = true;
+           } else {
+             ${ev.isNull} = true;
+           }
+         }
+       """
+        ev.copy(code = generatedCode)
+      }
+    } else if (!left.nullable && !right.nullable) {
       ev.copy(code = s"""
         ${eval1.code}
         boolean ${ev.value} = false;
@@ -388,7 +456,46 @@ case class Or(left: Expression, right: Expression) extends BinaryOperator with P
     val eval2 = right.genCode(ctx)
 
     // The result should be `true`, if any of them is `true` whenever the other is null or not.
-    if (!left.nullable && !right.nullable) {
+
+    // place generated code of eval1 and eval2 in separate methods if their code combined is large
+    val combinedLength = eval1.code.length + eval2.code.length
+    if (combinedLength > 1024 &&
+      // Split these expressions only if they are created from a row object
+      (ctx.INPUT_ROW != null && ctx.currentVars == null)) {
+
+      val (eval1FuncName, eval1GlobalIsNull, eval1GlobalValue) =
+        ctx.createAndAddFunction(eval1, BooleanType, "eval1Expr")
+      val (eval2FuncName, eval2GlobalIsNull, eval2GlobalValue) =
+        ctx.createAndAddFunction(eval2, BooleanType, "eval2Expr")
+      if (!left.nullable && !right.nullable) {
+        val generatedCode = s"""
+         $eval1FuncName(${ctx.INPUT_ROW});
+         boolean ${ev.value} = true;
+         if (!${eval1GlobalValue}) {
+           $eval2FuncName(${ctx.INPUT_ROW});
+           ${ev.value} = ${eval2GlobalValue};
+         }
+       """
+        ev.copy(code = generatedCode, isNull = "false")
+      } else {
+        val generatedCode = s"""
+         $eval1FuncName(${ctx.INPUT_ROW});
+         boolean ${ev.isNull} = false;
+         boolean ${ev.value} = true;
+         if (!${eval1GlobalIsNull} && ${eval1GlobalValue}) {
+         } else {
+           $eval2FuncName(${ctx.INPUT_ROW});
+           if (!${eval2GlobalIsNull} && ${eval2GlobalValue}) {
+           } else if (!${eval1GlobalIsNull} && !${eval2GlobalIsNull}) {
+             ${ev.value} = false;
+           } else {
+             ${ev.isNull} = true;
+           }
+         }
+       """
+        ev.copy(code = generatedCode)
+      }
+    } else if (!left.nullable && !right.nullable) {
       ev.isNull = "false"
       ev.copy(code = s"""
         ${eval1.code}

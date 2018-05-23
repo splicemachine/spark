@@ -119,7 +119,7 @@ should run continuous compilation (i.e. wait for changes). However, this has not
 extensively. A couple of gotchas to note:
 
 * it only scans the paths `src/main` and `src/test` (see
-[docs](http://scala-tools.org/mvnsites/maven-scala-plugin/usage_cc.html)), so it will only work
+[docs](http://davidb.github.io/scala-maven-plugin/example_cc.html)), so it will only work
 from within certain submodules that have that structure.
 
 * you'll typically need to run `mvn install` from the project root for compilation within
@@ -218,9 +218,11 @@ The run-tests script also can be limited to a specific Python version or a speci
 
 ## Running R Tests
 
-To run the SparkR tests you will need to install the R package `testthat`
-(run `install.packages(testthat)` from R shell).  You can run just the SparkR tests using
-the command:
+To run the SparkR tests you will need to install the [knitr](https://cran.r-project.org/package=knitr), [rmarkdown](https://cran.r-project.org/package=rmarkdown), [testthat](https://cran.r-project.org/package=testthat), [e1071](https://cran.r-project.org/package=e1071) and [survival](https://cran.r-project.org/package=survival) packages first:
+
+    R -e "install.packages(c('knitr', 'rmarkdown', 'testthat', 'e1071', 'survival'), repos='http://cran.us.r-project.org')"
+
+You can run just the SparkR tests using the command:
 
     ./R/run-tests.sh
 

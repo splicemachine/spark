@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hive.execution
 
-import java.io.IOException
+import java.io.{File, IOException}
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale, Random}
@@ -71,14 +71,15 @@ import org.apache.spark.SparkException
  *                  }}}.
  * @param query the logical plan representing data to write to.
  * @param overwrite overwrite existing table or partitions.
- * @param ifNotExists If true, only write if the table or partition does not exist.
+ * @param ifPartitionNotExists If true, only write if the partition does not exist.
+ *                                   Only valid for static partitions.
  */
 case class InsertIntoHiveTable(
     table: CatalogTable,
     partition: Map[String, Option[String]],
     query: LogicalPlan,
     overwrite: Boolean,
-    ifNotExists: Boolean) extends RunnableCommand {
+    ifPartitionNotExists: Boolean) extends RunnableCommand {
 
   override protected def innerChildren: Seq[LogicalPlan] = query :: Nil
 
@@ -97,12 +98,24 @@ case class InsertIntoHiveTable(
     val inputPathUri: URI = inputPath.toUri
     val inputPathName: String = inputPathUri.getPath
     val fs: FileSystem = inputPath.getFileSystem(hadoopConf)
-    val stagingPathName: String =
+    var stagingPathName: String =
       if (inputPathName.indexOf(stagingDir) == -1) {
         new Path(inputPathName, stagingDir).toString
       } else {
         inputPathName.substring(0, inputPathName.indexOf(stagingDir) + stagingDir.length)
       }
+
+    // SPARK-20594: This is a walk-around fix to resolve a Hive bug. Hive requires that the
+    // staging directory needs to avoid being deleted when users set hive.exec.stagingdir
+    // under the table directory.
+    if (FileUtils.isSubDir(new Path(stagingPathName), inputPath, fs) &&
+      !stagingPathName.stripPrefix(inputPathName).stripPrefix(File.separator).startsWith(".")) {
+      logDebug(s"The staging dir '$stagingPathName' should be a child directory starts " +
+        "with '.' to avoid being deleted if we set hive.exec.stagingdir under the table " +
+        "directory.")
+      stagingPathName = new Path(inputPathName, ".hive-staging").toString
+    }
+
     val dir: Path =
       fs.makeQualified(
         new Path(stagingPathName + "_" + executionId + "-" + TaskRunner.getTaskRunnerID))
@@ -342,7 +355,7 @@ case class InsertIntoHiveTable(
 
         var doHiveOverwrite = overwrite
 
-        if (oldPart.isEmpty || !ifNotExists) {
+        if (oldPart.isEmpty || !ifPartitionNotExists) {
           // SPARK-18107: Insert overwrite runs much slower than hive-client.
           // Newer Hive largely improves insert overwrite performance. As Spark uses older Hive
           // version and we may not want to catch up new Hive version every time. We delete the
@@ -387,7 +400,13 @@ case class InsertIntoHiveTable(
     // Attempt to delete the staging directory and the inclusive files. If failed, the files are
     // expected to be dropped at the normal termination of VM since deleteOnExit is used.
     try {
-      createdTempDir.foreach { path => path.getFileSystem(hadoopConf).delete(path, true) }
+      createdTempDir.foreach { path =>
+        val fs = path.getFileSystem(hadoopConf)
+        if (fs.delete(path, true)) {
+          // If we successfully delete the staging directory, remove it from FileSystem's cache.
+          fs.cancelDeleteOnExit(path)
+        }
+      }
     } catch {
       case NonFatal(e) =>
         logWarning(s"Unable to delete staging directory: $stagingDir.\n" + e)

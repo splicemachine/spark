@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.logical.LogicalGroupState
 import org.apache.spark.sql.execution.streaming.GroupStateImpl
+import org.apache.spark.sql.streaming.GroupStateTimeout
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
@@ -361,8 +362,11 @@ object MapGroupsExec {
       groupingAttributes: Seq[Attribute],
       dataAttributes: Seq[Attribute],
       outputObjAttr: Attribute,
+      timeoutConf: GroupStateTimeout,
       child: SparkPlan): MapGroupsExec = {
-    val f = (key: Any, values: Iterator[Any]) => func(key, values, new GroupStateImpl[Any](None))
+    val f = (key: Any, values: Iterator[Any]) => {
+      func(key, values, GroupStateImpl.createForBatch(timeoutConf))
+    }
     new MapGroupsExec(f, keyDeserializer, valueDeserializer,
       groupingAttributes, dataAttributes, outputObjAttr, child)
   }
@@ -393,7 +397,11 @@ case class FlatMapGroupsInRExec(
   override def producedAttributes: AttributeSet = AttributeSet(outputObjAttr)
 
   override def requiredChildDistribution: Seq[Distribution] =
-    ClusteredDistribution(groupingAttributes) :: Nil
+    if (groupingAttributes.isEmpty) {
+      AllTuples :: Nil
+    } else {
+      ClusteredDistribution(groupingAttributes) :: Nil
+    }
 
   override def requiredChildOrdering: Seq[Seq[SortOrder]] =
     Seq(groupingAttributes.map(SortOrder(_, Ascending)))

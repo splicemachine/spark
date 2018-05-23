@@ -19,6 +19,7 @@ package org.apache.spark.sql
 
 import java.io.File
 import java.math.MathContext
+import java.net.{MalformedURLException, URL}
 import java.sql.Timestamp
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -1636,6 +1637,46 @@ class SQLQuerySuite extends QueryTest with SharedSQLContext {
     }
   }
 
+  test("SPARK-23281: verify the correctness of sort direction on composite order by clause") {
+    withTempView("src") {
+      Seq[(Integer, Integer)](
+        (1, 1),
+        (1, 3),
+        (2, 3),
+        (3, 3),
+        (4, null),
+        (5, null)
+      ).toDF("key", "value").createOrReplaceTempView("src")
+
+      checkAnswer(sql(
+        """
+          |SELECT MAX(value) as value, key as col2
+          |FROM src
+          |GROUP BY key
+          |ORDER BY value desc, key
+        """.stripMargin),
+        Seq(Row(3, 1), Row(3, 2), Row(3, 3), Row(null, 4), Row(null, 5)))
+
+      checkAnswer(sql(
+        """
+          |SELECT MAX(value) as value, key as col2
+          |FROM src
+          |GROUP BY key
+          |ORDER BY value desc, key desc
+        """.stripMargin),
+        Seq(Row(3, 3), Row(3, 2), Row(3, 1), Row(null, 5), Row(null, 4)))
+
+      checkAnswer(sql(
+        """
+          |SELECT MAX(value) as value, key as col2
+          |FROM src
+          |GROUP BY key
+          |ORDER BY value asc, key desc
+        """.stripMargin),
+        Seq(Row(null, 5), Row(null, 4), Row(3, 3), Row(3, 2), Row(3, 1)))
+    }
+  }
+
   test("run sql directly on files") {
     val df = spark.range(100).toDF()
     withTempPath(f => {
@@ -2604,6 +2645,61 @@ class SQLQuerySuite extends QueryTest with SharedSQLContext {
       throw new AnalysisException("", None, None, plan = null)
     } catch {
       case ae: AnalysisException => assert(ae.plan == null && ae.getMessage == ae.getSimpleMessage)
+    }
+  }
+
+  test("SPARK-12868: Allow adding jars from hdfs ") {
+    val jarFromHdfs = "hdfs://doesnotmatter/test.jar"
+    val jarFromInvalidFs = "fffs://doesnotmatter/test.jar"
+
+    // if 'hdfs' is not supported, MalformedURLException will be thrown
+    new URL(jarFromHdfs)
+
+    intercept[MalformedURLException] {
+      new URL(jarFromInvalidFs)
+    }
+  }
+
+  test("RuntimeReplaceable functions should not take extra parameters") {
+    val e = intercept[AnalysisException](sql("SELECT nvl(1, 2, 3)"))
+    assert(e.message.contains("Invalid number of arguments"))
+  }
+
+  test("SPARK-21228: InSet incorrect handling of structs") {
+    withTempView("A") {
+      // reduce this from the default of 10 so the repro query text is not too long
+      withSQLConf((SQLConf.OPTIMIZER_INSET_CONVERSION_THRESHOLD.key -> "3")) {
+        // a relation that has 1 column of struct type with values (1,1), ..., (9, 9)
+        spark.range(1, 10).selectExpr("named_struct('a', id, 'b', id) as a")
+          .createOrReplaceTempView("A")
+        val df = sql(
+          """
+            |SELECT * from
+            | (SELECT MIN(a) as minA FROM A) AA -- this Aggregate will return UnsafeRows
+            | -- the IN will become InSet with a Set of GenericInternalRows
+            | -- a GenericInternalRow is never equal to an UnsafeRow so the query would
+            | -- returns 0 results, which is incorrect
+            | WHERE minA IN (NAMED_STRUCT('a', 1L, 'b', 1L), NAMED_STRUCT('a', 2L, 'b', 2L),
+            |   NAMED_STRUCT('a', 3L, 'b', 3L))
+          """.stripMargin)
+        checkAnswer(df, Row(Row(1, 1)))
+      }
+    }
+  }
+
+  test("SPARK-22356: overlapped columns between data and partition schema in data source tables") {
+    withTempPath { path =>
+      Seq((1, 1, 1), (1, 2, 1)).toDF("i", "p", "j")
+        .write.mode("overwrite").parquet(new File(path, "p=1").getCanonicalPath)
+      withTable("t") {
+        sql(s"create table t using parquet options(path='${path.getCanonicalPath}')")
+        // We should respect the column order in data schema.
+        assert(spark.table("t").columns === Array("i", "p", "j"))
+        checkAnswer(spark.table("t"), Row(1, 1, 1) :: Row(1, 1, 1) :: Nil)
+        // The DESC TABLE should report same schema as table scan.
+        assert(sql("desc t").select("col_name")
+          .as[String].collect().mkString(",").contains("i,p,j"))
+      }
     }
   }
 }

@@ -20,6 +20,7 @@ package org.apache.spark.deploy
 import java.io.{File, IOException}
 import java.lang.reflect.{InvocationTargetException, Modifier, UndeclaredThrowableException}
 import java.net.URL
+import java.nio.file.Files
 import java.security.PrivilegedExceptionAction
 import java.text.ParseException
 
@@ -28,7 +29,8 @@ import scala.collection.mutable.{ArrayBuffer, HashMap, Map}
 import scala.util.Properties
 
 import org.apache.commons.lang3.StringUtils
-import org.apache.hadoop.fs.Path
+import org.apache.hadoop.conf.{Configuration => HadoopConfiguration}
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.ivy.Ivy
 import org.apache.ivy.core.LogOptions
@@ -206,14 +208,20 @@ object SparkSubmit extends CommandLineUtils {
 
   /**
    * Prepare the environment for submitting an application.
-   * This returns a 4-tuple:
-   *   (1) the arguments for the child process,
-   *   (2) a list of classpath entries for the child,
-   *   (3) a map of system properties, and
-   *   (4) the main class for the child
+   *
+   * @param args the parsed SparkSubmitArguments used for environment preparation.
+   * @param conf the Hadoop Configuration, this argument will only be set in unit test.
+   * @return a 4-tuple:
+   *        (1) the arguments for the child process,
+   *        (2) a list of classpath entries for the child,
+   *        (3) a map of system properties, and
+   *        (4) the main class for the child
+   *
    * Exposed for testing.
    */
-  private[deploy] def prepareSubmitEnvironment(args: SparkSubmitArguments)
+  private[deploy] def prepareSubmitEnvironment(
+      args: SparkSubmitArguments,
+      conf: Option[HadoopConfiguration] = None)
       : (Seq[String], Seq[String], Map[String, String], String) = {
     // Return values
     val childArgs = new ArrayBuffer[String]()
@@ -308,6 +316,38 @@ object SparkSubmit extends CommandLineUtils {
       RPackageUtils.checkAndBuildRPackage(args.jars, printStream, args.verbose)
     }
 
+    // assure a keytab is available from any place in a JVM
+    if (clusterManager == YARN || clusterManager == LOCAL) {
+      if (args.principal != null) {
+        require(args.keytab != null, "Keytab must be specified when principal is specified")
+        if (!new File(args.keytab).exists()) {
+          throw new SparkException(s"Keytab file: ${args.keytab} does not exist")
+        } else {
+          // Add keytab and principal configurations in sysProps to make them available
+          // for later use; e.g. in spark sql, the isolated class loader used to talk
+          // to HiveMetastore will use these settings. They will be set as Java system
+          // properties and then loaded by SparkConf
+          sysProps.put("spark.yarn.keytab", args.keytab)
+          sysProps.put("spark.yarn.principal", args.principal)
+
+          UserGroupInformation.loginUserFromKeytab(args.principal, args.keytab)
+        }
+      }
+    }
+
+    // In client mode, download remote files.
+    var localPrimaryResource: String = null
+    var localJars: String = null
+    var localPyFiles: String = null
+    var localFiles: String = null
+    if (deployMode == CLIENT) {
+      val hadoopConf = conf.getOrElse(new HadoopConfiguration())
+      localPrimaryResource = Option(args.primaryResource).map(downloadFile(_, hadoopConf)).orNull
+      localJars = Option(args.jars).map(downloadFileList(_, hadoopConf)).orNull
+      localPyFiles = Option(args.pyFiles).map(downloadFileList(_, hadoopConf)).orNull
+      localFiles = Option(args.files).map(downloadFileList(_, hadoopConf)).orNull
+    }
+
     // Require all python files to be local, so we can add them to the PYTHONPATH
     // In YARN cluster mode, python files are distributed as regular files, which can be non-local.
     // In Mesos cluster mode, non-local python files are automatically downloaded by Mesos.
@@ -355,7 +395,7 @@ object SparkSubmit extends CommandLineUtils {
         // If a python file is provided, add it to the child arguments and list of files to deploy.
         // Usage: PythonAppRunner <main python file> <extra python files> [app arguments]
         args.mainClass = "org.apache.spark.deploy.PythonRunner"
-        args.childArgs = ArrayBuffer(args.primaryResource, args.pyFiles) ++ args.childArgs
+        args.childArgs = ArrayBuffer(localPrimaryResource, localPyFiles) ++ args.childArgs
         if (clusterManager != YARN) {
           // The YARN backend distributes the primary file differently, so don't merge it.
           args.files = mergeFileLists(args.files, args.primaryResource)
@@ -365,8 +405,8 @@ object SparkSubmit extends CommandLineUtils {
         // The YARN backend handles python files differently, so don't merge the lists.
         args.files = mergeFileLists(args.files, args.pyFiles)
       }
-      if (args.pyFiles != null) {
-        sysProps("spark.submit.pyFiles") = args.pyFiles
+      if (localPyFiles != null) {
+        sysProps("spark.submit.pyFiles") = localPyFiles
       }
     }
 
@@ -420,7 +460,7 @@ object SparkSubmit extends CommandLineUtils {
         // If an R file is provided, add it to the child arguments and list of files to deploy.
         // Usage: RRunner <main R file> [app arguments]
         args.mainClass = "org.apache.spark.deploy.RRunner"
-        args.childArgs = ArrayBuffer(args.primaryResource) ++ args.childArgs
+        args.childArgs = ArrayBuffer(localPrimaryResource) ++ args.childArgs
         args.files = mergeFileLists(args.files, args.primaryResource)
       }
     }
@@ -457,6 +497,7 @@ object SparkSubmit extends CommandLineUtils {
       OptionAssigner(args.queue, YARN, ALL_DEPLOY_MODES, sysProp = "spark.yarn.queue"),
       OptionAssigner(args.numExecutors, YARN, ALL_DEPLOY_MODES,
         sysProp = "spark.executor.instances"),
+      OptionAssigner(args.pyFiles, YARN, ALL_DEPLOY_MODES, sysProp = "spark.yarn.dist.pyFiles"),
       OptionAssigner(args.jars, YARN, ALL_DEPLOY_MODES, sysProp = "spark.yarn.dist.jars"),
       OptionAssigner(args.files, YARN, ALL_DEPLOY_MODES, sysProp = "spark.yarn.dist.files"),
       OptionAssigner(args.archives, YARN, ALL_DEPLOY_MODES, sysProp = "spark.yarn.dist.archives"),
@@ -480,15 +521,28 @@ object SparkSubmit extends CommandLineUtils {
         sysProp = "spark.driver.cores"),
       OptionAssigner(args.supervise.toString, STANDALONE | MESOS, CLUSTER,
         sysProp = "spark.driver.supervise"),
-      OptionAssigner(args.ivyRepoPath, STANDALONE, CLUSTER, sysProp = "spark.jars.ivy")
+      OptionAssigner(args.ivyRepoPath, STANDALONE, CLUSTER, sysProp = "spark.jars.ivy"),
+
+      // An internal option used only for spark-shell to add user jars to repl's classloader,
+      // previously it uses "spark.jars" or "spark.yarn.dist.jars" which now may be pointed to
+      // remote jars, so adding a new option to only specify local jars for spark-shell internally.
+      OptionAssigner(localJars, ALL_CLUSTER_MGRS, CLIENT, sysProp = "spark.repl.local.jars")
     )
 
     // In client mode, launch the application main class directly
     // In addition, add the main application jar and any added jars (if any) to the classpath
-    // Also add the main application jar and any added jars to classpath in case YARN client
-    // requires these jars.
-    if (deployMode == CLIENT || isYarnCluster) {
+    if (deployMode == CLIENT) {
       childMainClass = args.mainClass
+      if (localPrimaryResource != null && isUserJar(localPrimaryResource)) {
+        childClasspath += localPrimaryResource
+      }
+      if (localJars != null) { childClasspath ++= localJars.split(",") }
+    }
+    // Add the main application jar and any added jars to classpath in case YARN client
+    // requires these jars.
+    // This assumes both primaryResource and user jars are local jars, otherwise it will not be
+    // added to the classpath of YARN client.
+    if (isYarnCluster) {
       if (isUserJar(args.primaryResource)) {
         childClasspath += args.primaryResource
       }
@@ -544,29 +598,6 @@ object SparkSubmit extends CommandLineUtils {
     if (clusterManager == YARN) {
       if (args.isPython) {
         sysProps.put("spark.yarn.isPython", "true")
-      }
-
-      if (args.pyFiles != null) {
-        sysProps("spark.submit.pyFiles") = args.pyFiles
-      }
-    }
-
-    // assure a keytab is available from any place in a JVM
-    if (clusterManager == YARN || clusterManager == LOCAL) {
-      if (args.principal != null) {
-        require(args.keytab != null, "Keytab must be specified when principal is specified")
-        if (!new File(args.keytab).exists()) {
-          throw new SparkException(s"Keytab file: ${args.keytab} does not exist")
-        } else {
-          // Add keytab and principal configurations in sysProps to make them available
-          // for later use; e.g. in spark sql, the isolated class loader used to talk
-          // to HiveMetastore will use these settings. They will be set as Java system
-          // properties and then loaded by SparkConf
-          sysProps.put("spark.yarn.keytab", args.keytab)
-          sysProps.put("spark.yarn.principal", args.principal)
-
-          UserGroupInformation.loginUserFromKeytab(args.principal, args.keytab)
-        }
       }
     }
 
@@ -824,6 +855,41 @@ object SparkSubmit extends CommandLineUtils {
                       .flatMap(_.split(","))
                       .mkString(",")
     if (merged == "") null else merged
+  }
+
+  /**
+   * Download a list of remote files to temp local files. If the file is local, the original file
+   * will be returned.
+   * @param fileList A comma separated file list.
+   * @return A comma separated local files list.
+   */
+  private[deploy] def downloadFileList(
+      fileList: String,
+      hadoopConf: HadoopConfiguration): String = {
+    require(fileList != null, "fileList cannot be null.")
+    fileList.split(",").map(downloadFile(_, hadoopConf)).mkString(",")
+  }
+
+  /**
+   * Download a file from the remote to a local temporary directory. If the input path points to
+   * a local path, returns it with no operation.
+   */
+  private[deploy] def downloadFile(path: String, hadoopConf: HadoopConfiguration): String = {
+    require(path != null, "path cannot be null.")
+    val uri = Utils.resolveURI(path)
+    uri.getScheme match {
+      case "file" | "local" =>
+        path
+
+      case _ =>
+        val fs = FileSystem.get(uri, hadoopConf)
+        val tmpFile = new File(Files.createTempDirectory("tmp").toFile, uri.getPath)
+        // scalastyle:off println
+        printStream.println(s"Downloading ${uri.toString} to ${tmpFile.getAbsolutePath}.")
+        // scalastyle:on println
+        fs.copyToLocalFile(new Path(uri), new Path(tmpFile.getAbsolutePath))
+        Utils.resolveURI(tmpFile.getAbsolutePath).toString
+    }
   }
 }
 

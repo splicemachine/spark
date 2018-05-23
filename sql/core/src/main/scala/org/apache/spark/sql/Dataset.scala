@@ -19,7 +19,6 @@ package org.apache.spark.sql
 
 import java.io.CharArrayWriter
 import java.sql.{Date, Timestamp}
-import java.util.TimeZone
 
 import scala.collection.JavaConverters._
 import scala.language.implicitConversions
@@ -36,10 +35,11 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst._
 import org.apache.spark.sql.catalyst.analysis._
-import org.apache.spark.sql.catalyst.catalog.CatalogRelation
+import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
 import org.apache.spark.sql.catalyst.encoders._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateSafeProjection
 import org.apache.spark.sql.catalyst.json.{JacksonGenerator, JSONOptions}
 import org.apache.spark.sql.catalyst.optimizer.CombineUnions
 import org.apache.spark.sql.catalyst.parser.ParseException
@@ -132,7 +132,7 @@ private[sql] object Dataset {
  *
  *   people.filter("age > 30")
  *     .join(department, people("deptId") === department("id"))
- *     .groupBy(department("name"), "gender")
+ *     .groupBy(department("name"), people("gender"))
  *     .agg(avg(people("salary")), max(people("age")))
  * }}}
  *
@@ -142,9 +142,9 @@ private[sql] object Dataset {
  *   Dataset<Row> people = spark.read().parquet("...");
  *   Dataset<Row> department = spark.read().parquet("...");
  *
- *   people.filter("age".gt(30))
- *     .join(department, people.col("deptId").equalTo(department("id")))
- *     .groupBy(department.col("name"), "gender")
+ *   people.filter(people.col("age").gt(30))
+ *     .join(department, people.col("deptId").equalTo(department.col("id")))
+ *     .groupBy(department.col("name"), people.col("gender"))
  *     .agg(avg(people.col("salary")), max(people.col("age")));
  * }}}
  *
@@ -196,15 +196,10 @@ class Dataset[T] private[sql](
    */
   private[sql] implicit val exprEnc: ExpressionEncoder[T] = encoderFor(encoder)
 
-  /**
-   * Encoder is used mostly as a container of serde expressions in Dataset.  We build logical
-   * plans by these serde expressions and execute it within the query framework.  However, for
-   * performance reasons we may want to use encoder as a function to deserialize internal rows to
-   * custom objects, e.g. collect.  Here we resolve and bind the encoder so that we can call its
-   * `fromRow` method later.
-   */
-  private val boundEnc =
-    exprEnc.resolveAndBind(logicalPlan.output, sparkSession.sessionState.analyzer)
+  // The deserializer expression which can be used to build a projection and turn rows to objects
+  // of type T, after collecting rows to the driver side.
+  private val deserializer =
+    exprEnc.resolveAndBind(logicalPlan.output, sparkSession.sessionState.analyzer).deserializer
 
   private implicit def classTag = exprEnc.clsTag
 
@@ -247,7 +242,8 @@ class Dataset[T] private[sql](
     val hasMoreData = takeResult.length > numRows
     val data = takeResult.take(numRows)
 
-    lazy val timeZone = TimeZone.getTimeZone(sparkSession.sessionState.conf.sessionLocalTimeZone)
+    lazy val timeZone =
+      DateTimeUtils.getTimeZone(sparkSession.sessionState.conf.sessionLocalTimeZone)
 
     // For array values, replace Seq and Array with square brackets
     // For cells that are beyond `truncate` characters, replace it with the
@@ -372,6 +368,10 @@ class Dataset[T] private[sql](
    * If the schema of the Dataset does not match the desired `U` type, you can use `select`
    * along with `alias` or `as` to rearrange or rename as required.
    *
+   * Note that `as[]` only changes the view of the data that is passed into typed operations,
+   * such as `map()`, and does not eagerly project away any columns that are not present in
+   * the specified class.
+   *
    * @group basic
    * @since 1.6.0
    */
@@ -484,7 +484,6 @@ class Dataset[T] private[sql](
    * @group streaming
    * @since 2.0.0
    */
-  @Experimental
   @InterfaceStability.Evolving
   def isStreaming: Boolean = logicalPlan.isStreaming
 
@@ -545,7 +544,6 @@ class Dataset[T] private[sql](
   }
 
   /**
-   * :: Experimental ::
    * Defines an event time watermark for this [[Dataset]]. A watermark tracks a point in time
    * before which we assume no more late data is going to arrive.
    *
@@ -569,7 +567,6 @@ class Dataset[T] private[sql](
    * @group streaming
    * @since 2.1.0
    */
-  @Experimental
   @InterfaceStability.Evolving
   // We only accept an existing column name, not a derived column here as a watermark that is
   // defined on a derived column cannot referenced elsewhere in the plan.
@@ -579,7 +576,8 @@ class Dataset[T] private[sql](
         .getOrElse(throw new AnalysisException(s"Unable to parse time delay '$delayThreshold'"))
     require(parsedDelay.milliseconds >= 0 && parsedDelay.months >= 0,
       s"delay threshold ($delayThreshold) should not be negative.")
-    EventTimeWatermark(UnresolvedAttribute(eventTime), parsedDelay, logicalPlan)
+    EliminateEventTimeWatermark(
+      EventTimeWatermark(UnresolvedAttribute(eventTime), parsedDelay, logicalPlan))
   }
 
   /**
@@ -903,7 +901,7 @@ class Dataset[T] private[sql](
    * @param condition Join expression.
    * @param joinType Type of join to perform. Default `inner`. Must be one of:
    *                 `inner`, `cross`, `outer`, `full`, `full_outer`, `left`, `left_outer`,
-   *                 `right`, `right_outer`, `left_semi`, `left_anti`.
+   *                 `right`, `right_outer`.
    *
    * @group typedrel
    * @since 1.6.0
@@ -919,6 +917,10 @@ class Dataset[T] private[sql](
         other.logicalPlan,
         JoinType(joinType),
         Some(condition.expr))).analyzed.asInstanceOf[Join]
+
+    if (joined.joinType == LeftSemi || joined.joinType == LeftAnti) {
+      throw new AnalysisException("Invalid join type in joinWith: " + joined.joinType.sql)
+    }
 
     // For both join side, combine all outputs into a single column and alias it with "_1" or "_2",
     // to match the schema for the encoder of the join result.
@@ -1026,7 +1028,7 @@ class Dataset[T] private[sql](
    */
   @scala.annotation.varargs
   def sort(sortCol: String, sortCols: String*): Dataset[T] = {
-    sort((sortCol +: sortCols).map(apply) : _*)
+    sort((sortCol +: sortCols).map(Column(_)) : _*)
   }
 
   /**
@@ -1072,6 +1074,22 @@ class Dataset[T] private[sql](
    * @since 2.0.0
    */
   def apply(colName: String): Column = col(colName)
+
+  /**
+   * Specifies some hint on the current Dataset. As an example, the following code specifies
+   * that one of the plan can be broadcasted:
+   *
+   * {{{
+   *   df1.join(df2.hint("broadcast"))
+   * }}}
+   *
+   * @group basic
+   * @since 2.2.0
+   */
+  @scala.annotation.varargs
+  def hint(name: String, parameters: Any*): Dataset[T] = withTypedPlan {
+    UnresolvedHint(name, parameters, logicalPlan)
+  }
 
   /**
    * Selects column based on the column name and return it as a [[Column]].
@@ -1613,10 +1631,11 @@ class Dataset[T] private[sql](
 
   /**
    * Returns a new Dataset containing union of rows in this Dataset and another Dataset.
-   * This is equivalent to `UNION ALL` in SQL.
    *
-   * To do a SQL-style set union (that does deduplication of elements), use this function followed
-   * by a [[distinct]].
+   * This is equivalent to `UNION ALL` in SQL. To do a SQL-style set union (that does
+   * deduplication of elements), use this function followed by a [[distinct]].
+   *
+   * Also as standard in SQL, this function resolves columns by position (not by name).
    *
    * @group typedrel
    * @since 2.0.0
@@ -1626,10 +1645,11 @@ class Dataset[T] private[sql](
 
   /**
    * Returns a new Dataset containing union of rows in this Dataset and another Dataset.
-   * This is equivalent to `UNION ALL` in SQL.
    *
-   * To do a SQL-style set union (that does deduplication of elements), use this function followed
-   * by a [[distinct]].
+   * This is equivalent to `UNION ALL` in SQL. To do a SQL-style set union (that does
+   * deduplication of elements), use this function followed by a [[distinct]].
+   *
+   * Also as standard in SQL, this function resolves columns by position (not by name).
    *
    * @group typedrel
    * @since 2.0.0
@@ -2398,7 +2418,15 @@ class Dataset[T] private[sql](
    */
   def toLocalIterator(): java.util.Iterator[T] = {
     withAction("toLocalIterator", queryExecution) { plan =>
-      plan.executeToIterator().map(boundEnc.fromRow).asJava
+      // This projection writes output to a `InternalRow`, which means applying this projection is
+      // not thread-safe. Here we create the projection inside this method to make `Dataset`
+      // thread-safe.
+      val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
+      plan.executeToIterator().map { row =>
+        // The row returned by SafeProjection is `SpecificInternalRow`, which ignore the data type
+        // parameter of its `get` method, so it's safe to use null here.
+        objProj(row).get(0, null).asInstanceOf[T]
+      }.asJava
     }
   }
 
@@ -2640,6 +2668,22 @@ class Dataset[T] private[sql](
     createTempViewCommand(viewName, replace = false, global = true)
   }
 
+  /**
+   * Creates or replaces a global temporary view using the given name. The lifetime of this
+   * temporary view is tied to this Spark application.
+   *
+   * Global temporary view is cross-session. Its lifetime is the lifetime of the Spark application,
+   * i.e. it will be automatically dropped when the application terminates. It's tied to a system
+   * preserved database `_global_temp`, and we must use the qualified name to refer a global temp
+   * view, e.g. `SELECT * FROM _global_temp.view1`.
+   *
+   * @group basic
+   * @since 2.2.0
+   */
+  def createOrReplaceGlobalTempView(viewName: String): Unit = withPlan {
+    createTempViewCommand(viewName, replace = true, global = true)
+  }
+
   private def createTempViewCommand(
       viewName: String,
       replace: Boolean,
@@ -2678,13 +2722,11 @@ class Dataset[T] private[sql](
   }
 
   /**
-   * :: Experimental ::
    * Interface for saving the content of the streaming Dataset out into external storage.
    *
    * @group basic
    * @since 2.0.0
    */
-  @Experimental
   @InterfaceStability.Evolving
   def writeStream: DataStreamWriter[T] = {
     if (!isStreaming) {
@@ -2743,7 +2785,7 @@ class Dataset[T] private[sql](
         fsBasedRelation.inputFiles
       case fr: FileRelation =>
         fr.inputFiles
-      case r: CatalogRelation if DDLUtils.isHiveTable(r.tableMeta) =>
+      case r: HiveTableRelation =>
         r.tableMeta.storage.locationUri.map(_.toString).toArray
     }.flatten
     files.toSet.toArray
@@ -2762,7 +2804,7 @@ class Dataset[T] private[sql](
     EvaluatePython.javaToPython(rdd)
   }
 
-  private[sql] def collectToPython(): Int = {
+  private[sql] def collectToPython(): Array[Any] = {
     EvaluatePython.registerPicklers()
     withNewExecutionId {
       val toJava: (Any) => Any = EvaluatePython.toJava(_, schema)
@@ -2772,7 +2814,7 @@ class Dataset[T] private[sql](
     }
   }
 
-  private[sql] def toPythonIterator(): Int = {
+  private[sql] def toPythonIterator(): Array[Any] = {
     withNewExecutionId {
       PythonRDD.toLocalIteratorAndServe(javaToPython.rdd)
     }
@@ -2817,7 +2859,14 @@ class Dataset[T] private[sql](
    * Collect all elements from a spark plan.
    */
   private def collectFromPlan(plan: SparkPlan): Array[T] = {
-    plan.executeCollect().map(boundEnc.fromRow)
+    // This projection writes output to a `InternalRow`, which means applying this projection is not
+    // thread-safe. Here we create the projection inside this method to make `Dataset` thread-safe.
+    val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
+    plan.executeCollect().map { row =>
+      // The row returned by SafeProjection is `SpecificInternalRow`, which ignore the data type
+      // parameter of its `get` method, so it's safe to use null here.
+      objProj(row).get(0, null).asInstanceOf[T]
+    }
   }
 
   private def sortInternal(global: Boolean, sortExprs: Seq[Column]): Dataset[T] = {

@@ -18,6 +18,7 @@
 package org.apache.spark.sql.hive.test
 
 import java.io.File
+import java.net.URI
 import java.util.{Set => JavaSet}
 
 import scala.collection.JavaConverters._
@@ -486,15 +487,15 @@ private[hive] class TestHiveSparkSession(
         }
       }
 
+      // Clean out the Hive warehouse between each suite
+      val warehouseDir = new File(new URI(sparkContext.conf.get("spark.sql.warehouse.dir")).getPath)
+      Utils.deleteRecursively(warehouseDir)
+      warehouseDir.mkdir()
+
       sharedState.cacheManager.clearCache()
       loadedTables.clear()
-      sessionState.catalog.clearTempTables()
-      sessionState.catalog.tableRelationCache.invalidateAll()
-
+      sessionState.catalog.reset()
       metadataHive.reset()
-
-      FunctionRegistry.getFunctionNames.asScala.filterNot(originalUDFs.contains(_)).
-        foreach { udfName => FunctionRegistry.unregisterTemporaryUDF(udfName) }
 
       // HDFS root scratch dir requires the write all (733) permission. For each connecting user,
       // an HDFS scratch dir: ${hive.exec.scratchdir}/<username> is created, with

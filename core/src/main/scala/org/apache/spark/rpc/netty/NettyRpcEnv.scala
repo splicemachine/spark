@@ -185,7 +185,7 @@ private[netty] class NettyRpcEnv(
       try {
         dispatcher.postOneWayMessage(message)
       } catch {
-        case e: RpcEnvStoppedException => logWarning(e.getMessage)
+        case e: RpcEnvStoppedException => logDebug(e.getMessage)
       }
     } else {
       // Message to a remote RPC endpoint.
@@ -203,7 +203,10 @@ private[netty] class NettyRpcEnv(
 
     def onFailure(e: Throwable): Unit = {
       if (!promise.tryFailure(e)) {
-        logWarning(s"Ignored failure: $e")
+        e match {
+          case e : RpcEnvStoppedException => logDebug (s"Ignored failure: $e")
+          case _ => logWarning(s"Ignored failure: $e")
+        }
       }
     }
 
@@ -328,16 +331,14 @@ private[netty] class NettyRpcEnv(
 
     val pipe = Pipe.open()
     val source = new FileDownloadChannel(pipe.source())
-    try {
+    Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
       val client = downloadClient(parsedUri.getHost(), parsedUri.getPort())
       val callback = new FileDownloadCallback(pipe.sink(), source, client)
       client.stream(parsedUri.getPath(), callback)
-    } catch {
-      case e: Exception =>
-        pipe.sink().close()
-        source.close()
-        throw e
-    }
+    })(catchBlock = {
+      pipe.sink().close()
+      source.close()
+    })
 
     source
   }
@@ -366,24 +367,33 @@ private[netty] class NettyRpcEnv(
     fileDownloadFactory.createClient(host, port)
   }
 
-  private class FileDownloadChannel(source: ReadableByteChannel) extends ReadableByteChannel {
+  private class FileDownloadChannel(source: Pipe.SourceChannel) extends ReadableByteChannel {
 
     @volatile private var error: Throwable = _
 
     def setError(e: Throwable): Unit = {
+      // This setError callback is invoked by internal RPC threads in order to propagate remote
+      // exceptions to application-level threads which are reading from this channel. When an
+      // RPC error occurs, the RPC system will call setError() and then will close the
+      // Pipe.SinkChannel corresponding to the other end of the `source` pipe. Closing of the pipe
+      // sink will cause `source.read()` operations to return EOF, unblocking the application-level
+      // reading thread. Thus there is no need to actually call `source.close()` here in the
+      // onError() callback and, in fact, calling it here would be dangerous because the close()
+      // would be asynchronous with respect to the read() call and could trigger race-conditions
+      // that lead to data corruption. See the PR for SPARK-22982 for more details on this topic.
       error = e
-      source.close()
     }
 
     override def read(dst: ByteBuffer): Int = {
       Try(source.read(dst)) match {
+        // See the documentation above in setError(): if an RPC error has occurred then setError()
+        // will be called to propagate the RPC error and then `source`'s corresponding
+        // Pipe.SinkChannel will be closed, unblocking this read. In that case, we want to propagate
+        // the remote RPC exception (and not any exceptions triggered by the pipe close, such as
+        // ChannelClosedException), hence this `error != null` check:
+        case _ if error != null => throw error
         case Success(bytesRead) => bytesRead
-        case Failure(readErr) =>
-          if (error != null) {
-            throw error
-          } else {
-            throw readErr
-          }
+        case Failure(readErr) => throw readErr
       }
     }
 
