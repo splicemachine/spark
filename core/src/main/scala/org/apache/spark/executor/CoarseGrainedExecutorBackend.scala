@@ -18,7 +18,9 @@
 package org.apache.spark.executor
 
 import java.net.URL
+import java.net.{UnknownHostException, InetAddress, URL}
 import java.nio.ByteBuffer
+import java.nio.channels.UnresolvedAddressException
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -47,6 +49,8 @@ private[spark] class CoarseGrainedExecutorBackend(
     env: SparkEnv)
   extends ThreadSafeRpcEndpoint with ExecutorBackend with Logging {
 
+  private val NUM_RETRIES = 60
+  private val SLEEP_BETWEEN_RETRIES_MILLIS = 1000
   private[this] val stopping = new AtomicBoolean(false)
   var executor: Executor = null
   @volatile var driver: Option[RpcEndpointRef] = None
@@ -54,6 +58,33 @@ private[spark] class CoarseGrainedExecutorBackend(
   // If this CoarseGrainedExecutorBackend is changed to support multiple threads, then this may need
   // to be changed so that we don't share the serializer instance across threads
   private[this] val ser: SerializerInstance = env.closureSerializer.newInstance()
+
+  private def retryableException(throwable: Throwable): Boolean = {
+    throwable match {
+      case e: UnresolvedAddressException => true
+      case _ => false
+    }
+  }
+
+  private def resolveHostName(): Unit = {
+    var retryCount = NUM_RETRIES
+    while (true) {
+      try {
+        InetAddress.getAllByName(hostname)
+        return true
+      } catch {
+        case e: UnknownHostException => {
+          if (retryCount==0) {
+            logInfo(s"Cannot resolve host name: $hostname, failing")
+            throw e
+          }
+          logInfo(s"Cannot resolve host name: $hostname, retrying")
+          retryCount -= 1
+          Thread.sleep(SLEEP_BETWEEN_RETRIES_MILLIS)
+        }
+      }
+    }
+  }
 
   override def onStart() {
     logInfo("Connecting to driver: " + driverUrl)
@@ -68,6 +99,13 @@ private[spark] class CoarseGrainedExecutorBackend(
       case Failure(e) =>
         exitExecutor(1, s"Cannot register with driver: $driverUrl", e, notifyDriver = false)
     }(ThreadUtils.sameThread)
+    logInfo("Resolving Host Name: " + hostname)
+    try {
+      resolveHostName()
+    } catch {
+      case e : Throwable=>
+        exitExecutor(1, s"Cannot resolve host name: $hostname", e, notifyDriver = false)
+    }
   }
 
   def extractLogUrls: Map[String, String] = {

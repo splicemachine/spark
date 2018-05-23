@@ -21,6 +21,8 @@ import java.io.File
 import java.util.{Collections, List => JList}
 import java.util.concurrent.locks.ReentrantLock
 
+import org.apache.mesos.Protos
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
@@ -74,6 +76,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private val useFetcherCache = conf.getBoolean("spark.mesos.fetcherCache.enable", false)
 
   private val maxGpus = conf.getInt("spark.mesos.gpus.max", 0)
+
+  private val frameworkName = conf.get("spark.app.name")
 
   private val taskLabels = conf.get("spark.mesos.task.labels", "")
 
@@ -228,7 +232,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           .format(prefixEnv, runScript) +
         s" --driver-url $driverURL" +
         s" --executor-id $taskId" +
-        s" --hostname ${executorHostname(offer)}" +
+        s" --hostname ${executorHostname(offer,taskId)}" +
         s" --cores $numCores" +
         s" --app-id $appId")
     } else {
@@ -240,7 +244,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
         "./bin/spark-class org.apache.spark.executor.CoarseGrainedExecutorBackend" +
         s" --driver-url $driverURL" +
         s" --executor-id $taskId" +
-        s" --hostname ${executorHostname(offer)}" +
+        s" --hostname ${executorHostname(offer,taskId)}" +
         s" --cores $numCores" +
         s" --app-id $appId")
       command.addUris(CommandInfo.URI.newBuilder().setValue(uri.get).setCache(useFetcherCache))
@@ -417,6 +421,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           val taskBuilder = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offer.getSlaveId)
+            .setDiscovery(DiscoveryInfo.newBuilder.setVisibility(DiscoveryInfo.Visibility.EXTERNAL).setName(taskId.toString))
             .setCommand(createCommand(offer, taskCPUs + extraCoresPerExecutor, taskId))
             .setName(s"${sc.appName} $taskId")
 
@@ -676,15 +681,14 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     slaves.values.map(_.taskIDs.size).sum
   }
 
-  private def executorHostname(offer: Offer): String = {
+  private def executorHostname(offer: Offer, taskId: String): String = {
     if (sc.conf.getOption("spark.mesos.network.name").isDefined) {
-      // The agent's IP is not visible in a CNI container, so we bind to 0.0.0.0
-      "0.0.0.0"
+      // The agent's IP is not visible in a CNI container, so we use mesos-dns
+      taskId+"."+frameworkName+".mesos"
     } else {
       offer.getHostname
     }
   }
-}
 
 private class Slave(val hostname: String) {
   val taskIDs = new mutable.HashSet[String]()
