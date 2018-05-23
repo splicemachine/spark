@@ -689,6 +689,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       offer.getHostname
     }
   }
+}
 
 private class Slave(val hostname: String) {
   val taskIDs = new mutable.HashSet[String]()
