@@ -30,7 +30,6 @@ import scala.reflect.ClassTag
 import scala.util.Random
 import scala.util.control.NonFatal
 
-import collection.JavaConversions._
 import org.apache.spark._
 import org.apache.spark.executor.{DataReadMethod, ShuffleWriteMetrics}
 import org.apache.spark.internal.Logging
@@ -166,29 +165,33 @@ private[spark] class BlockManager(
     }
   }
 
-  // Host used by the external shuffle service. In Yarn mode, this may be already be
-  // set through the Hadoop configuration as the server is launched in the Yarn NM.
+  // Host used by the external shuffle service.
   private val externalShuffleServiceHost = {
     if (conf.getOption("spark.mesos.network.name").isDefined) {
-      // Must go on the public ip in this case since shuffle service cannot be on
-      // the private network
+      // Must go on the public ip on executors when CNI is present
+      // since shuffle service cannot be on the private network
       val endpoint = System.getenv("MESOS_AGENT_ENDPOINT")
-      logInfo("External Shuffle Service Mesos Agent Endpoint: "+endpoint)
-      logInfo("External Shuffle Service Agent Host: "+endpoint.substring(0,endpoint.indexOf(":")))
-      endpoint.substring(0,endpoint.indexOf(":"))
+      if (endpoint != null) {
+        logInfo("ExternalShuffleService Mesos Agent Endpoint: " + endpoint)
+        logInfo("ExternalShuffleService Agent Host: " +
+          endpoint.substring(0, endpoint.indexOf(":")))
+        endpoint.substring(0, endpoint.indexOf(":"))
+      } else {
+        logInfo("ExternalShuffleService Host (null mesos endpoint): " +
+          blockTransferService.hostName)
+        blockTransferService.hostName
+      }
     } else {
-      logInfo("External Shuffle Service Host: "+blockTransferService.hostName)
+      logInfo("ExternalShuffleService Host: " + blockTransferService.hostName)
       blockTransferService.hostName
     }
   }
-
 
   var blockManagerId: BlockManagerId = _
 
   // Address of the server that serves this executor's shuffle files. This is either an external
   // service, or just our own Executor's BlockManager.
   private[spark] var shuffleServerId: BlockManagerId = _
-
 
   // Client to read other executors' shuffle files. This is either an external service, or just the
   // standard BlockTransferService to directly connect to other Executors.

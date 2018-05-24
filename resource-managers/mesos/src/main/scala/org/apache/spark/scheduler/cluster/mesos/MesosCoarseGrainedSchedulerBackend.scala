@@ -21,8 +21,6 @@ import java.io.File
 import java.util.{Collections, List => JList}
 import java.util.concurrent.locks.ReentrantLock
 
-import org.apache.mesos.Protos
-
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
@@ -232,7 +230,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           .format(prefixEnv, runScript) +
         s" --driver-url $driverURL" +
         s" --executor-id $taskId" +
-        s" --hostname ${executorHostname(offer,taskId)}" +
+        s" --hostname ${executorHostname(offer, taskId)}" +
         s" --cores $numCores" +
         s" --app-id $appId")
     } else {
@@ -244,7 +242,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
         "./bin/spark-class org.apache.spark.executor.CoarseGrainedExecutorBackend" +
         s" --driver-url $driverURL" +
         s" --executor-id $taskId" +
-        s" --hostname ${executorHostname(offer,taskId)}" +
+        s" --hostname ${executorHostname(offer, taskId)}" +
         s" --cores $numCores" +
         s" --app-id $appId")
       command.addUris(CommandInfo.URI.newBuilder().setValue(uri.get).setCache(useFetcherCache))
@@ -421,7 +419,9 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           val taskBuilder = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offer.getSlaveId)
-            .setDiscovery(DiscoveryInfo.newBuilder.setVisibility(DiscoveryInfo.Visibility.EXTERNAL).setName(taskId.toString))
+            .setDiscovery(DiscoveryInfo.newBuilder
+            .setVisibility(DiscoveryInfo.Visibility.EXTERNAL)
+            .setName(taskId.toString))
             .setCommand(createCommand(offer, taskCPUs + extraCoresPerExecutor, taskId))
             .setName(s"${sc.appName} $taskId")
 
@@ -684,7 +684,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private def executorHostname(offer: Offer, taskId: String): String = {
     if (sc.conf.getOption("spark.mesos.network.name").isDefined) {
       // The agent's IP is not visible in a CNI container, so we use mesos-dns
-      taskId+"."+frameworkName+".mesos"
+      taskId + "." + frameworkName + ".mesos"
     } else {
       offer.getHostname
     }

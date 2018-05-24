@@ -17,8 +17,7 @@
 
 package org.apache.spark.executor
 
-import java.net.URL
-import java.net.{UnknownHostException, InetAddress, URL}
+import java.net.{InetAddress, UnknownHostException, URL}
 import java.nio.ByteBuffer
 import java.nio.channels.UnresolvedAddressException
 import java.util.Locale
@@ -59,29 +58,28 @@ private[spark] class CoarseGrainedExecutorBackend(
   // to be changed so that we don't share the serializer instance across threads
   private[this] val ser: SerializerInstance = env.closureSerializer.newInstance()
 
-  private def retryableException(throwable: Throwable): Boolean = {
-    throwable match {
-      case e: UnresolvedAddressException => true
-      case _ => false
-    }
-  }
+  // private def retryableException(throwable: Throwable): Boolean = {
+  //  throwable match {
+  //    case e: UnresolvedAddressException => true
+  //    case _ => false
+  //  }
+  // }
 
   private def resolveHostName(): Unit = {
     var retryCount = NUM_RETRIES
     while (true) {
       try {
         InetAddress.getAllByName(hostname)
-        return true
       } catch {
-        case e: UnknownHostException => {
+        case e: UnknownHostException =>
           if (retryCount==0) {
             logInfo(s"Cannot resolve host name: $hostname, failing")
             throw e
+          } else {
+            logInfo(s"Cannot resolve host name: $hostname, retrying")
+            retryCount -= 1
+            Thread.sleep(SLEEP_BETWEEN_RETRIES_MILLIS)
           }
-          logInfo(s"Cannot resolve host name: $hostname, retrying")
-          retryCount -= 1
-          Thread.sleep(SLEEP_BETWEEN_RETRIES_MILLIS)
-        }
       }
     }
   }
@@ -103,7 +101,7 @@ private[spark] class CoarseGrainedExecutorBackend(
     try {
       resolveHostName()
     } catch {
-      case e : Throwable=>
+      case e : Throwable =>
         exitExecutor(1, s"Cannot resolve host name: $hostname", e, notifyDriver = false)
     }
   }
