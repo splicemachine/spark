@@ -70,6 +70,7 @@ private[spark] class CoarseGrainedExecutorBackend(
     while (true) {
       try {
         InetAddress.getAllByName(hostname)
+        return
       } catch {
         case e: UnknownHostException =>
           if (retryCount==0) {
